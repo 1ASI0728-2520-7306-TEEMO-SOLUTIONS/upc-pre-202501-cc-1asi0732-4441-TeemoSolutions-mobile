@@ -42,28 +42,30 @@ class RouteService {
 
   /// Calculate optimal route - Based on Angular RouteService
   Future<RouteCalculationResource> calculateOptimalRoute(
-    String originPort,
-    String destinationPort,
-    List<String> intermediatePorts,
-  ) async {
+      String originPort,
+      String destinationPort,
+      List<String> intermediatePorts,
+      ) async {
     try {
-      // Construye la URL con los parámetros en la query
-      final url = Uri.parse(
-        '${AppConstants.baseUrl}/routes/calculate-optimal-route'
-        '?startPort=$originPort&endPort=$destinationPort',
-      );
+      final qp = <String, String>{
+        'startPort': originPort,
+        'endPort': destinationPort,
+        if (intermediatePorts.isNotEmpty)
+          'intermediatePorts': intermediatePorts.join(','), // "A,B,C"
+      };
+
+      final url = Uri.parse('${AppConstants.baseUrl}/routes/calculate-optimal-route')
+          .replace(queryParameters: qp); // ✅ codifica espacios y tildes
 
       final response = await http.post(
         url,
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: '', // El body puede ir vacío si la API así lo espera
+        headers: {'Content-Type': 'application/json'},
+        body: '', // si tu API no espera body
       );
 
       if (response.statusCode == 200) {
         final Map<String, dynamic> data = jsonDecode(response.body);
-        return RouteCalculationResource.fromJson(data);
+        return RouteCalculationResource.fromJson(data); // ✅ ahora sí pobla 'coordinates'
       } else {
         throw Exception('Failed to calculate route: ${response.statusCode}');
       }
@@ -71,6 +73,7 @@ class RouteService {
       throw Exception('Network error calculating route: $e');
     }
   }
+
 
   /// Create new route
   Future<RouteModel> createRoute({

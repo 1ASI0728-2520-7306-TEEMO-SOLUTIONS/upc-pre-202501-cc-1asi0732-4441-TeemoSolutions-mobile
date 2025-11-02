@@ -79,6 +79,8 @@ class RouteCalculationResource {
   final List<RouteSegment> segments;
   final List<PortCoordinates> coordinates;
   final String status;
+  final List<String> warnings; // ✅ nuevo campo
+
 
   RouteCalculationResource({
     required this.routeName,
@@ -87,22 +89,60 @@ class RouteCalculationResource {
     required this.segments,
     required this.coordinates,
     required this.status,
+    this.warnings = const [],
   });
 
   factory RouteCalculationResource.fromJson(Map<String, dynamic> json) {
+    // Path A: backend envía formato que mostraste (optimalRoute + coordinatesMapping)
+
+    final warningsList = (json['warnings'] as List?)?.cast<String>() ?? const [];
+
+    final optimal = (json['optimalRoute'] as List?)?.cast<String>() ?? const <String>[];
+    final coordsMapRaw = json['coordinatesMapping'] as Map<String, dynamic>?;
+
+    if (optimal.isNotEmpty && coordsMapRaw != null && coordsMapRaw.isNotEmpty) {
+      // Construimos la lista 'coordinates' en el orden de optimalRoute
+      final coordsList = <PortCoordinates>[];
+      for (final name in optimal) {
+        final c = coordsMapRaw[name];
+        if (c is Map<String, dynamic>) {
+          final lat = (c['latitude'] as num?)?.toDouble();
+          final lon = (c['longitude'] as num?)?.toDouble();
+          if (lat != null && lon != null) {
+            coordsList.add(PortCoordinates(latitude: lat, longitude: lon));
+          }
+        }
+      }
+
+      return RouteCalculationResource(
+        routeName: json['routeName'] ?? '',                 // opcional, puede venir vacío
+        totalDistance: (json['totalDistance'] ?? 0.0).toDouble(),
+        estimatedDays: json['estimatedDays'] ?? 0,          // si no viene, 0
+        segments: const <RouteSegment>[],                   // no viene en este formato
+        coordinates: coordsList,                            // ✅ lo importante para el mapa
+        status: json['status'] ?? 'calculated',
+        warnings: warningsList,
+      );
+    }
+
+    // Path B: legacy (tu formato anterior con 'coordinates' y 'segments')
     return RouteCalculationResource(
       routeName: json['routeName'] ?? '',
       totalDistance: (json['totalDistance'] ?? 0.0).toDouble(),
       estimatedDays: json['estimatedDays'] ?? 0,
       segments: (json['segments'] as List<dynamic>?)
           ?.map((segment) => RouteSegment.fromJson(segment))
-          .toList() ?? [],
+          .toList() ??
+          [],
       coordinates: (json['coordinates'] as List<dynamic>?)
           ?.map((coord) => PortCoordinates.fromJson(coord))
-          .toList() ?? [],
+          .toList() ??
+          [],
       status: json['status'] ?? 'calculated',
+      warnings: warningsList,
     );
   }
+
 }
 
 class RouteSegment {

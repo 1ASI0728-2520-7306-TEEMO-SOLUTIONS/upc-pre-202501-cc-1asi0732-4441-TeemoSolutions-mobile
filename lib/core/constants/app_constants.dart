@@ -6,7 +6,7 @@ class AppConstants {
   static const String appDescription = 'Maritime Route Management';
 
   // API Configuration - corresponds to Angular's environment.ts
-  static const String baseUrl = 'http://localhost:8080/api';
+  static const String baseUrl = 'http://192.168.18.10:2020/api';
   static const String authEndpoint = '/authentication';
   static const String routesEndpoint = '/routes';
   static const String portsEndpoint = '/ports';
