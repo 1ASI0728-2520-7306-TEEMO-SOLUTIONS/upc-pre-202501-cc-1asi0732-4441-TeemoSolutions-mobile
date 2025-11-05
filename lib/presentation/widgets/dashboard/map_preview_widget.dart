@@ -48,16 +48,20 @@ class _MapPreviewWidgetState extends State<MapPreviewWidget> {
           Padding(
             padding: const EdgeInsets.all(16.0),
             child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                const Text(
-                  'Mapa de Rutas Marítimas',
-                  style: TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
+                const Expanded(
+                  child: Text(
+                    'Mapa de Rutas Marítimas',
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                    ),
                   ),
                 ),
-                Row(
+                // Usa Wrap para evitar overflow en pantallas pequeñas
+                Wrap(
+                  spacing: 4,
                   children: [
                     IconButton(
                       icon: const Icon(Icons.zoom_in),
@@ -99,12 +103,13 @@ class _MapPreviewWidgetState extends State<MapPreviewWidget> {
                     ),
                     children: [
                       TileLayer(
-                        urlTemplate: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
-                        subdomains: const ['a','b','c'],
+                        // OSM estándar sin subdominios (evita el warning y funciona con HTTP/2)
+                        urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
                         userAgentPackageName: 'pe.edu.upc.mushroom',
                         maxZoom: 19,
                         tileProvider: NetworkTileProvider(
-                          headers: const {
+                          // No usar const: el proveedor puede fusionar headers internamente
+                          headers: {
                             'User-Agent': 'pe.edu.upc.mushroom/1.0 (+https://upc.edu.pe)',
                           },
                         ),

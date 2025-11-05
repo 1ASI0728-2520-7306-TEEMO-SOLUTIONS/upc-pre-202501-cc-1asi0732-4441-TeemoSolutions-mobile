@@ -730,11 +730,10 @@ class _PortSelectorScreenState extends State<PortSelectorScreen> {
                 ),
                 children: [
                   TileLayer(
-                    urlTemplate: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
-                    subdomains: const ['a','b','c'],
+                    urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
                     userAgentPackageName: 'pe.edu.upc.mushroom',
                     maxZoom: 19,
-                    tileProvider: NetworkTileProvider(headers: const {
+                    tileProvider: NetworkTileProvider(headers: {
                       'User-Agent': 'pe.edu.upc.mushroom/1.0 (+https://upc.edu.pe)',
                     }),
                   ),
@@ -898,12 +897,11 @@ class RoutePreview extends StatelessWidget {
           children: [
             // Tiles (OSM por defecto)
             TileLayer(
-              urlTemplate: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
-              subdomains: const ['a','b','c'],
+              urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
               userAgentPackageName: 'pe.edu.upc.mushroom',
               maxZoom: 19,
               tileProvider: NetworkTileProvider(
-                headers: const {
+                headers: {
                   'User-Agent': 'pe.edu.upc.mushroom/1.0 (+https://upc.edu.pe)',
                 },
               ),
@@ -1005,9 +1003,8 @@ class _RouteAnimationScreenState extends State<RouteAnimationScreen>
               ),
               children: [
                 TileLayer(
-                  // OSM estándar con CORS en Web
-                  urlTemplate: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
-                  subdomains: const ['a','b','c'],
+                  // OSM estándar sin subdominios
+                  urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
                   userAgentPackageName: 'pe.edu.upc.mushroom',
                   maxZoom: 19,
                 ),

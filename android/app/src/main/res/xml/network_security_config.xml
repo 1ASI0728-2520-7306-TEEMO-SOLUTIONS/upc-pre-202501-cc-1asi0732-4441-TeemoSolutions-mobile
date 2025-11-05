@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<network-security-config>
+    <!-- Configuración amplia para desarrollo; se referencia desde el manifest de debug -->
+    <base-config cleartextTrafficPermitted="true" />
+</network-security-config>

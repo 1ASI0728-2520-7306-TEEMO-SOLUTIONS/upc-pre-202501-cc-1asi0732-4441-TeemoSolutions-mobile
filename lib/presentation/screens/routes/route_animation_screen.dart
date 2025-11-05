@@ -250,15 +250,14 @@ class _RouteAnimationScreenState extends State<RouteAnimationScreen>
               children: [
                 // usa el mismo tile server que funcionó en la otra pantalla
                 TileLayer(
-                  urlTemplate: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
-                  subdomains: const ['a','b','c'],
+                  // OSM estándar sin subdominios (recomendado por operaciones OSM)
+                  urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
                   // Debe coincidir con el applicationId/bundleId real
                   userAgentPackageName: 'pe.edu.upc.mushroom',
                   maxZoom: 19,
                   tileProvider: NetworkTileProvider(
-                    headers: const {
-                      // Para desktop (Windows/macOS/Linux) y algunos entornos
-                      // donde userAgentPackageName no aplica
+                    // Evitar const para permitir que el provider combine headers
+                    headers: {
                       'User-Agent': 'pe.edu.upc.mushroom/1.0 (+https://upc.edu.pe)',
                     },
                   ),
