@@ -2,6 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../../../data/models/incoterm_model.dart';
 import '../../../data/services/incoterm_service.dart';
+import '../../../data/services/report_local_store.dart';
+import '../../../core/constants/app_constants.dart';
+import 'package:go_router/go_router.dart';
 import '../../widgets/common/loading_button.dart';
 
 class IncotermCalculatorScreen extends StatefulWidget {
@@ -354,6 +357,7 @@ class _IncotermCalculatorScreenState extends State<IncotermCalculatorScreen> {
           isLoading: _isCalculating,
           text: 'Calcular Incoterms',
           icon: Icons.calculate,
+          fullWidth: false,
         ),
       ],
     );
@@ -796,6 +800,7 @@ class _IncotermCalculatorScreenState extends State<IncotermCalculatorScreen> {
     return _formData.cargoType.isNotEmpty &&
            _formData.cargoValue > 0 &&
            _formData.cargoWeight > 0 &&
+           _formData.cargoVolume > 0 &&
            _formData.seller.isNotEmpty &&
            _formData.buyer.isNotEmpty &&
            _formData.sellerCountry.isNotEmpty &&
@@ -842,17 +847,41 @@ class _IncotermCalculatorScreenState extends State<IncotermCalculatorScreen> {
   }
 
   void _createReport() {
-    // Simulate report creation
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Informe creado con éxito. Puede consultarlo en la sección de Informes.'),
-        duration: Duration(seconds: 3),
-      ),
-    );
+    if (_calculationResult == null) return;
 
-    // Close the screen after a brief delay
-    Future.delayed(const Duration(milliseconds: 1500), () {
-      Navigator.of(context).pop();
+    final now = DateTime.now();
+    final report = <String, dynamic>{
+      'id': now.millisecondsSinceEpoch,
+      'type': 'incoterm',
+      'createdAt': now.toIso8601String(),
+      // Campos que usa la pantalla de reportes actual
+      'shipmentId': 'INC-${now.millisecondsSinceEpoch % 100000}',
+      'route': '${widget.originPort} → ${widget.destinationPort}',
+      'origin': widget.originPort,
+      'destination': widget.destinationPort,
+      'status': 'Calculado',
+      'progress': 1.0,
+      'eta': _calculationResult!.routeDetails.estimatedTime,
+      'cargo': _formData.cargoType,
+      // Extras útiles
+      'distance': widget.distance,
+      'recommended': {
+        'code': _calculationResult!.recommendedIncoterm.code,
+        'name': _calculationResult!.recommendedIncoterm.name,
+        'total': _calculationResult!.recommendedIncoterm.costBreakdown.total,
+      },
+      'warnings': _calculationResult!.warnings,
+    };
+
+    ReportLocalStore.addIncotermReport(report).then((_) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Informe guardado. Abriendo Reportes…'),
+          duration: Duration(seconds: 1),
+        ),
+      );
+      // Ir a la pantalla de reportes
+      context.go(AppRoutes.shipmentReports);
     });
   }
 

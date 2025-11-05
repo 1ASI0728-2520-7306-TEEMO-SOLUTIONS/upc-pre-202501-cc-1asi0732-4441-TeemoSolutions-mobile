@@ -811,54 +811,57 @@ class _PortSelectorScreenState extends State<PortSelectorScreen> {
   }
 
   Widget _buildActionButtons() {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.end,
-      children: [
-        OutlinedButton(
-          onPressed: () => Navigator.of(context).pop(),
-          child: const Text('Cancelar'),
-        ),
-        const SizedBox(width: 12),
-        ElevatedButton.icon(
-          onPressed: (_selectedOriginPort != null && _selectedDestinationPort != null)
-              ? _visualizeRoute
-              : null,
-          icon: _isCalculatingRoute
-              ? const SizedBox(
-                  width: 16,
-                  height: 16,
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                )
-              : const Icon(Icons.map),
-          label: Text(_isCalculatingRoute ? 'Calculando...' : 'Visualizar Ruta'),
-          style: ElevatedButton.styleFrom(
-            backgroundColor: Colors.grey.shade600,
-            foregroundColor: Colors.white,
+    // Wrap en lugar de Row para que los botones hagan salto de línea en pantallas angostas
+    return Padding(
+      padding: const EdgeInsets.only(top: 8.0),
+      child: OverflowBar(
+        alignment: MainAxisAlignment.end,
+        spacing: 12,
+        overflowSpacing: 8,
+        children: [
+          OutlinedButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Cancelar'),
           ),
-        ),
-        const SizedBox(width: 12),
-        ElevatedButton.icon(
-          onPressed: (_selectedOriginPort != null && _selectedDestinationPort != null)
-              ? _createRoute
-              : null,
-          icon: const Icon(Icons.add),
-          label: const Text('Crear Ruta'),
-          style: ElevatedButton.styleFrom(
-            backgroundColor: const Color(0xFF0A6CBC),
-            foregroundColor: Colors.white,
+          ElevatedButton.icon(
+            onPressed: (_selectedOriginPort != null && _selectedDestinationPort != null)
+                ? _visualizeRoute
+                : null,
+            icon: _isCalculatingRoute
+                ? const SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.map),
+            label: Text(_isCalculatingRoute ? 'Calculando...' : 'Visualizar Ruta'),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.grey.shade600,
+              foregroundColor: Colors.white,
+            ),
           ),
-        ),
-        const SizedBox(width: 12),
-        ElevatedButton.icon(
-          onPressed: _routeData != null ? _showIncotermCalculator : null,
-          icon: const Icon(Icons.calculate),
-          label: const Text('Calcular Incoterm'),
-          style: ElevatedButton.styleFrom(
-            backgroundColor: Colors.grey.shade600,
-            foregroundColor: Colors.white,
+          ElevatedButton.icon(
+            onPressed: (_selectedOriginPort != null && _selectedDestinationPort != null)
+                ? _createRoute
+                : null,
+            icon: const Icon(Icons.add),
+            label: const Text('Crear Ruta'),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF0A6CBC),
+              foregroundColor: Colors.white,
+            ),
           ),
-        ),
-      ],
+          ElevatedButton.icon(
+            onPressed: _routeData != null ? _showIncotermCalculator : null,
+            icon: const Icon(Icons.calculate),
+            label: const Text('Calcular Incoterm'),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.grey.shade600,
+              foregroundColor: Colors.white,
+            ),
+          ),
+        ],
+      ),
     );
   }
 

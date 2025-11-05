@@ -9,6 +9,7 @@ class LoadingButton extends StatelessWidget {
   final IconData? icon;
   final Color? backgroundColor;
   final Color? textColor;
+  final bool fullWidth; // controla si ocupa todo el ancho disponible
 
   const LoadingButton({
     super.key,
@@ -18,14 +19,12 @@ class LoadingButton extends StatelessWidget {
     this.icon,
     this.backgroundColor,
     this.textColor,
+    this.fullWidth = true,
   });
 
   @override
   Widget build(BuildContext context) {
-    return SizedBox(
-      width: double.infinity,
-      height: 48,
-      child: ElevatedButton(
+    final button = ElevatedButton(
         onPressed: isLoading ? null : onPressed,
         style: ElevatedButton.styleFrom(
           backgroundColor: backgroundColor ?? Theme.of(context).primaryColor,
@@ -54,7 +53,19 @@ class LoadingButton extends StatelessWidget {
                   Text(text),
                 ],
               ),
-      ),
+      );
+
+    if (fullWidth) {
+      return SizedBox(
+        width: double.infinity,
+        height: 48,
+        child: button,
+      );
+    }
+
+    return ConstrainedBox(
+      constraints: const BoxConstraints(minHeight: 48),
+      child: button,
     );
   }
 }

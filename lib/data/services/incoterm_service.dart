@@ -1,3 +1,6 @@
+import 'dart:convert';
+import 'package:http/http.dart' as http;
+import '../../core/constants/app_constants.dart';
 import '../models/incoterm_model.dart';
 
 class IncotermService {
@@ -7,10 +10,85 @@ class IncotermService {
     String destinationPort,
     double distance,
   ) async {
-    // Simulate API delay
-    await Future.delayed(const Duration(milliseconds: 1500));
-    
-    return _generateIncotermRecommendation(formData, originPort, destinationPort, distance);
+    // Intenta llamar al backend real; si falla, cae al generador local como fallback
+    try {
+      final uri = Uri.parse('${AppConstants.baseUrl}/incoterms/calculate');
+      final payload = {
+        ...formData.toJson(),
+        'originPort': originPort,
+        'destinationPort': destinationPort,
+        'distance': distance,
+      };
+
+      final response = await http.post(
+        uri,
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode(payload),
+      );
+
+      if (response.statusCode != 200) {
+        throw Exception('HTTP ${response.statusCode}: ${response.reasonPhrase}');
+      }
+
+      final Map<String, dynamic> raw = jsonDecode(response.body);
+
+      // Adaptar el shape del backend a nuestros modelos actuales
+      Map<String, dynamic> _mapCostBreakdown(Map<String, dynamic> src) {
+        double _d(dynamic v) {
+          if (v is num) return v.toDouble();
+          if (v is String) return double.tryParse(v) ?? 0.0;
+          return 0.0;
+        }
+        final freight = _d(src['oceanFreight']) + _d(src['fuelSurcharge']) + _d(src['bunkerAdjustmentFactor']);
+        final insurance = _d(src['marineInsurance']) + _d(src['cargoInsurance']) + _d(src['warRiskInsurance']);
+        final customs = _d(src['exportCustomsClearance']) + _d(src['importCustomsClearance']) + _d(src['importDuties']) + _d(src['taxes']);
+        final handling = _d(src['originPortHandling']) + _d(src['destinationPortHandling']) + _d(src['containerHandling']) + _d(src['stevedoring']) + _d(src['warehousing']) + _d(src['demurrage']) + _d(src['detention']);
+        final docs = _d(src['billOfLading']) + _d(src['certificateOfOrigin']) + _d(src['inspectionCertificate']) + _d(src['customsDocumentation']);
+        final total = _d(src['total']);
+        return {
+          'freight': freight,
+          'insurance': insurance,
+          'customsClearance': customs,
+          'portHandling': handling,
+          'documentation': docs,
+          'total': total > 0 ? total : (freight + insurance + customs + handling + docs),
+        };
+      }
+
+      Map<String, dynamic> _adaptIncoterm(Map<String, dynamic> it) {
+        final Map<String, dynamic> out = Map<String, dynamic>.from(it);
+        out['recommendationScore'] = (it['recommendationScore'] is num)
+            ? (it['recommendationScore'] as num).toDouble()
+            : 0.0;
+        final cost = (it['costBreakdown'] as Map?)?.cast<String, dynamic>() ?? <String, dynamic>{};
+        out['costBreakdown'] = _mapCostBreakdown(cost);
+        // Campos extra como riskTransferPoint/suitableFor se ignoran por ahora
+        return out;
+      }
+
+      final recommended = (raw['recommendedIncoterm'] as Map?)?.cast<String, dynamic>() ?? <String, dynamic>{};
+      final alternatives = (raw['alternatives'] as List? ?? const [])
+          .map((e) => (e as Map).cast<String, dynamic>())
+          .toList();
+
+      final transformed = <String, dynamic>{
+        'recommendedIncoterm': _adaptIncoterm(recommended),
+        'alternatives': alternatives.map(_adaptIncoterm).toList(),
+        'routeDetails': {
+          'distance': (raw['routeDetails']?['distance'] ?? distance) is num
+              ? (raw['routeDetails']?['distance'] as num).toDouble()
+              : distance,
+          'estimatedTime': raw['routeDetails']?['estimatedTime'] ?? '',
+          'riskLevel': raw['routeDetails']?['riskLevel'] ?? '',
+        },
+        'warnings': List<String>.from(raw['warnings'] ?? const []),
+      };
+
+      return IncotermCalculationResult.fromJson(transformed);
+    } catch (e) {
+      // Fallback local para no romper la UX si el backend no responde o hay CORS
+      return _generateIncotermRecommendation(formData, originPort, destinationPort, distance);
+    }
   }
 
   IncotermCalculationResult _generateIncotermRecommendation(

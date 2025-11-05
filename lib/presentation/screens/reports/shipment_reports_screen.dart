@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../../core/constants/app_constants.dart';
 import '../../widgets/common/custom_drawer.dart';
+import '../../../data/services/report_local_store.dart';
 
 /// Shipment reports screen matching Angular's ShipmentReportsComponent
 class ShipmentReportsScreen extends StatefulWidget {
@@ -11,44 +12,15 @@ class ShipmentReportsScreen extends StatefulWidget {
 }
 
 class _ShipmentReportsScreenState extends State<ShipmentReportsScreen> {
-  final List<Map<String, dynamic>> _reports = [
-    {
-      'id': 1,
-      'shipmentId': 'SH001',
-      'route': 'Atlantic Express',
-      'origin': 'New York',
-      'destination': 'London',
-      'status': 'In Transit',
-      'progress': 0.65,
-      'eta': '2024-02-15',
-      'cargo': 'Electronics',
-    },
-    {
-      'id': 2,
-      'shipmentId': 'SH002',
-      'route': 'Pacific Route',
-      'origin': 'Los Angeles',
-      'destination': 'Tokyo',
-      'status': 'Delivered',
-      'progress': 1.0,
-      'eta': '2024-02-10',
-      'cargo': 'Automotive Parts',
-    },
-    {
-      'id': 3,
-      'shipmentId': 'SH003',
-      'route': 'Mediterranean Line',
-      'origin': 'Barcelona',
-      'destination': 'Istanbul',
-      'status': 'Scheduled',
-      'progress': 0.0,
-      'eta': '2024-02-20',
-      'cargo': 'Textiles',
-    },
-  ];
-
+  List<Map<String, dynamic>> _reports = [];
   String _selectedFilter = 'All';
-  final List<String> _filterOptions = ['All', 'In Transit', 'Delivered', 'Scheduled'];
+  final List<String> _filterOptions = ['All', 'Calculado', 'In Transit', 'Delivered', 'Scheduled'];
+
+  @override
+  void initState() {
+    super.initState();
+    _loadReports();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -80,11 +52,7 @@ class _ShipmentReportsScreenState extends State<ShipmentReportsScreen> {
           ),
         ],
       ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: _addNewReport,
-        child: const Icon(Icons.add),
-        tooltip: 'Add New Report',
-      ),
+      // Sin FAB por ahora: los informes se generan desde otras pantallas
     );
   }
 
@@ -121,9 +89,9 @@ class _ShipmentReportsScreenState extends State<ShipmentReportsScreen> {
   }
 
   Widget _buildReportsList() {
-    final filteredReports = _selectedFilter == 'All'
-        ? _reports
-        : _reports.where((report) => report['status'] == _selectedFilter).toList();
+  final filteredReports = _selectedFilter == 'All'
+    ? _reports
+    : _reports.where((report) => (report['status'] ?? '').toString() == _selectedFilter).toList();
 
     if (filteredReports.isEmpty) {
       return Center(
@@ -199,7 +167,49 @@ class _ShipmentReportsScreenState extends State<ShipmentReportsScreen> {
               style: Theme.of(context).textTheme.bodyMedium,
             ),
             const SizedBox(height: 12),
-            
+
+            // Incoterm (si proviene de la calculadora de Incoterms)
+            if (report['recommended'] is Map &&
+                ((report['recommended'] as Map)['code'] ?? '') != '') ...[
+              Row(
+                children: [
+                  Chip(
+                    label: Text(
+                      'Incoterm: ${(report['recommended'] as Map)['code']}',
+                      style: const TextStyle(color: Colors.white),
+                    ),
+                    backgroundColor: const Color(0xFF0A6CBC),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      (report['recommended'] as Map)['name'] ?? '',
+                      style: Theme.of(context).textTheme.bodyMedium,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    'Costo total estimado',
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                  Text(
+                    _formatMoney((((report['recommended'] as Map)['total']) ?? 0).toDouble()),
+                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.bold,
+                          color: Theme.of(context).colorScheme.primary,
+                        ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+            ],
+
             // Progress Bar (if in transit)
             if (report['status'] == 'In Transit') ...[
               Row(
@@ -318,28 +328,17 @@ class _ShipmentReportsScreenState extends State<ShipmentReportsScreen> {
     );
   }
 
-  void _refreshReports() {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Refreshing reports...'),
-        duration: Duration(seconds: 1),
-      ),
-    );
+  Future<void> _loadReports() async {
+    final data = await ReportLocalStore.loadIncotermReports();
+    setState(() {
+      _reports = data;
+    });
   }
 
-  void _addNewReport() {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Add New Report'),
-        content: const Text('This feature will be implemented soon.'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('OK'),
-          ),
-        ],
-      ),
+  Future<void> _refreshReports() async {
+    await _loadReports();
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Reportes actualizados')),
     );
   }
 
@@ -358,6 +357,19 @@ class _ShipmentReportsScreenState extends State<ShipmentReportsScreen> {
             Text('Status: ${report['status']}'),
             Text('Cargo: ${report['cargo']}'),
             Text('ETA: ${report['eta']}'),
+            const SizedBox(height: 8),
+            if ((report['recommended'] ?? const {}) is Map &&
+                (report['recommended']['code'] ?? '') != '') ...[
+              const Divider(),
+              const Text(
+                'Incoterm',
+                style: TextStyle(fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 6),
+              Text('Código: ${report['recommended']['code']}'),
+              Text('Nombre: ${report['recommended']['name']}'),
+              Text('Costo Total: ${_formatMoney((report['recommended']['total'] ?? 0).toDouble())}'),
+            ],
           ],
         ),
         actions: [
@@ -368,6 +380,11 @@ class _ShipmentReportsScreenState extends State<ShipmentReportsScreen> {
         ],
       ),
     );
+  }
+
+  String _formatMoney(double value) {
+    if (value.isNaN || value.isInfinite) return '\$0';
+    return '\$' + value.toStringAsFixed(0);
   }
 
   void _downloadSingleReport(Map<String, dynamic> report) {

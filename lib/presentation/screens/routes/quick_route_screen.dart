@@ -188,6 +188,7 @@ class _QuickRouteScreenState extends State<QuickRouteScreen> {
                           isLoading: _isLoading,
                           text: 'Crear y Ver Animación',
                           icon: Icons.play_circle,
+                          fullWidth: false,
                         ),
                       ],
                     ),
