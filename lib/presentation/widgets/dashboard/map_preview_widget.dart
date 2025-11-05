@@ -99,8 +99,15 @@ class _MapPreviewWidgetState extends State<MapPreviewWidget> {
                     ),
                     children: [
                       TileLayer(
-                        urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-                        userAgentPackageName: 'com.example.mushroom_mobile',
+                        urlTemplate: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+                        subdomains: const ['a','b','c'],
+                        userAgentPackageName: 'pe.edu.upc.mushroom',
+                        maxZoom: 19,
+                        tileProvider: NetworkTileProvider(
+                          headers: const {
+                            'User-Agent': 'pe.edu.upc.mushroom/1.0 (+https://upc.edu.pe)',
+                          },
+                        ),
                       ),
                       MarkerLayer(
                         markers: _ports.map((port) => Marker(

@@ -1,4 +1,3 @@
-import 'dart:math';
 import '../models/incoterm_model.dart';
 
 class IncotermService {
@@ -22,8 +21,7 @@ class IncotermService {
   ) {
     // Calculate base costs based on distance and cargo value
     final baseFreight = (distance * 0.05).round().toDouble();
-    final baseInsurance = (formData.cargoValue * 0.02).round().toDouble();
-    final baseCustoms = (formData.cargoValue * 0.03).round().toDouble();
+  final baseInsurance = (formData.cargoValue * 0.02).round().toDouble();
     final baseHandling = (formData.cargoWeight * 2 + formData.cargoVolume * 10).round().toDouble();
     const baseDocumentation = 250.0;
 

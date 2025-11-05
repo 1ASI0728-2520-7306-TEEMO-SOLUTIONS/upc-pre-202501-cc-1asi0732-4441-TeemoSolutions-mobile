@@ -80,6 +80,9 @@ class RouteCalculationResource {
   final List<PortCoordinates> coordinates;
   final String status;
   final List<String> warnings; // ✅ nuevo campo
+  final List<String> portNames; // ✅ nombres de puertos en orden
+  final bool? landDetectionActive; // ✅ si el backend lo provee
+  final int? landFeaturesCount;    // ✅ cantidad de features detectadas
 
 
   RouteCalculationResource({
@@ -90,6 +93,9 @@ class RouteCalculationResource {
     required this.coordinates,
     required this.status,
     this.warnings = const [],
+    this.portNames = const [],
+    this.landDetectionActive,
+    this.landFeaturesCount,
   });
 
   factory RouteCalculationResource.fromJson(Map<String, dynamic> json) {
@@ -97,7 +103,7 @@ class RouteCalculationResource {
 
     final warningsList = (json['warnings'] as List?)?.cast<String>() ?? const [];
 
-    final optimal = (json['optimalRoute'] as List?)?.cast<String>() ?? const <String>[];
+  final optimal = (json['optimalRoute'] as List?)?.cast<String>() ?? const <String>[];
     final coordsMapRaw = json['coordinatesMapping'] as Map<String, dynamic>?;
 
     if (optimal.isNotEmpty && coordsMapRaw != null && coordsMapRaw.isNotEmpty) {
@@ -122,24 +128,50 @@ class RouteCalculationResource {
         coordinates: coordsList,                            // ✅ lo importante para el mapa
         status: json['status'] ?? 'calculated',
         warnings: warningsList,
+        portNames: optimal,                                  // ✅ guardamos el orden de puertos
+        landDetectionActive: (json['landDetection'] is Map)
+            ? ((json['landDetection']['active'] as bool?) ?? true)
+            : (json['landDetectionActive'] as bool?),
+        landFeaturesCount: (json['landDetection'] is Map)
+            ? (json['landDetection']['features'] as int?)
+            : (json['landFeaturesCount'] as int?),
       );
     }
 
     // Path B: legacy (tu formato anterior con 'coordinates' y 'segments')
+    // En formato legacy, intentamos reconstruir nombres desde 'segments'
+    final segs = (json['segments'] as List<dynamic>?)
+        ?.map((segment) => RouteSegment.fromJson(segment))
+        .toList() ??
+        [];
+    final derivedNames = <String>[];
+    if (segs.isNotEmpty) {
+      derivedNames.add(segs.first.from);
+      for (final s in segs) {
+        if (derivedNames.isEmpty || derivedNames.last != s.to) {
+          derivedNames.add(s.to);
+        }
+      }
+    }
+
     return RouteCalculationResource(
       routeName: json['routeName'] ?? '',
       totalDistance: (json['totalDistance'] ?? 0.0).toDouble(),
       estimatedDays: json['estimatedDays'] ?? 0,
-      segments: (json['segments'] as List<dynamic>?)
-          ?.map((segment) => RouteSegment.fromJson(segment))
-          .toList() ??
-          [],
+      segments: segs,
       coordinates: (json['coordinates'] as List<dynamic>?)
           ?.map((coord) => PortCoordinates.fromJson(coord))
           .toList() ??
           [],
       status: json['status'] ?? 'calculated',
       warnings: warningsList,
+      portNames: derivedNames,
+      landDetectionActive: (json['landDetection'] is Map)
+          ? ((json['landDetection']['active'] as bool?) ?? null)
+          : (json['landDetectionActive'] as bool?),
+      landFeaturesCount: (json['landDetection'] is Map)
+          ? (json['landDetection']['features'] as int?)
+          : (json['landFeaturesCount'] as int?),
     );
   }
 

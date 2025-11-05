@@ -1,12 +1,8 @@
-import 'dart:math' as math;
-
 import 'package:flutter/material.dart';
 import '../../../data/models/port_model.dart';
 import '../../../data/models/route_model.dart';
 import '../../../data/services/port_service.dart';
 import '../../../data/services/route_service.dart';
-import '../../widgets/common/loading_button.dart';
-import 'route_animation_screen.dart';
 import 'incoterm_calculator_screen.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart' as ll;
@@ -671,6 +667,40 @@ class _PortSelectorScreenState extends State<PortSelectorScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
+                    // Resumen basado en datos reales del API
+                    Wrap(
+                      spacing: 24,
+                      runSpacing: 8,
+                      crossAxisAlignment: WrapCrossAlignment.center,
+                      children: [
+                        _buildSummaryItem('Distancia Total:', '${_routeData!.totalDistance.toStringAsFixed(0)} millas náuticas'),
+                        _buildSummaryItem('Puertos en la Ruta:',
+                            (_routeData!.portNames.isNotEmpty
+                                ? _routeData!.portNames.length
+                                : (_routeData!.segments.isNotEmpty
+                                    ? _routeData!.segments.length + 1
+                                    : 0)).toString()),
+                        _buildSummaryItem('Puerto Actual:',
+                            (_routeData!.portNames.length >= 2)
+                                ? _routeData!.portNames[1]
+                                : (_routeData!.portNames.isNotEmpty
+                                    ? _routeData!.portNames.last
+                                    : '—')),
+                        _buildSummaryItem('Próximo Puerto:',
+                            (_routeData!.portNames.length >= 3)
+                                ? _routeData!.portNames[2]
+                                : (_routeData!.portNames.length >= 2
+                                    ? _routeData!.portNames[1]
+                                    : '—')),
+                        _buildSummaryItem('Detección de Tierra:',
+                            _routeData!.landDetectionActive == null
+                                ? '—'
+                                : (_routeData!.landDetectionActive!
+                                    ? '✓ Activa${_routeData!.landFeaturesCount != null ? ' (${_routeData!.landFeaturesCount} características)' : ''}'
+                                    : 'Inactiva')),
+                      ],
+                    ),
+
                     if ((_routeData!.warnings).isNotEmpty) ...[
                       const SizedBox(height: 8),
 
@@ -700,8 +730,13 @@ class _PortSelectorScreenState extends State<PortSelectorScreen> {
                 ),
                 children: [
                   TileLayer(
-                    urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-                    userAgentPackageName: 'com.example.mushroom_mobile',
+                    urlTemplate: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+                    subdomains: const ['a','b','c'],
+                    userAgentPackageName: 'pe.edu.upc.mushroom',
+                    maxZoom: 19,
+                    tileProvider: NetworkTileProvider(headers: const {
+                      'User-Agent': 'pe.edu.upc.mushroom/1.0 (+https://upc.edu.pe)',
+                    }),
                   ),
                   if (points.length > 1)
                     PolylineLayer(polylines: [Polyline(points: points, strokeWidth: 4)]),
@@ -863,8 +898,15 @@ class RoutePreview extends StatelessWidget {
           children: [
             // Tiles (OSM por defecto)
             TileLayer(
-              urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-              userAgentPackageName: 'com.example.mushroom_mobile',
+              urlTemplate: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+              subdomains: const ['a','b','c'],
+              userAgentPackageName: 'pe.edu.upc.mushroom',
+              maxZoom: 19,
+              tileProvider: NetworkTileProvider(
+                headers: const {
+                  'User-Agent': 'pe.edu.upc.mushroom/1.0 (+https://upc.edu.pe)',
+                },
+              ),
             ),
             // Polilínea de la ruta
             if (points.length > 1)
@@ -963,9 +1005,11 @@ class _RouteAnimationScreenState extends State<RouteAnimationScreen>
               ),
               children: [
                 TileLayer(
-                  urlTemplate:
-                  'https://tile.openstreetmap.fr/hot/{z}/{x}/{y}.png',
-                  userAgentPackageName: 'com.tuapp.nombre',
+                  // OSM estándar con CORS en Web
+                  urlTemplate: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+                  subdomains: const ['a','b','c'],
+                  userAgentPackageName: 'pe.edu.upc.mushroom',
+                  maxZoom: 19,
                 ),
                 PolylineLayer(
                   polylines: [

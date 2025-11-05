@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:latlong2/latlong.dart';
 import '../../../data/models/port_model.dart';
 import '../../../data/services/port_service.dart';
 import '../../../data/services/route_service.dart';
@@ -40,9 +41,7 @@ class _QuickRouteScreenState extends State<QuickRouteScreen> {
         _isLoadingPorts = false;
       });
     } catch (e) {
-      setState(() {
-        _isLoadingPorts = false;
-      });
+      setState(() => _isLoadingPorts = false);
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Error al cargar puertos: $e')),
       );
@@ -78,7 +77,7 @@ class _QuickRouteScreenState extends State<QuickRouteScreen> {
                             ),
                             const SizedBox(height: 8),
                             const Text(
-                              'Para funcionalidades avanzadas como selección de puertos intermedios y cálculo de Incoterms, use "Seleccionar Puertos" desde el dashboard.',
+                              'Para funciones avanzadas (puertos intermedios, Incoterms) usa "Seleccionar Puertos" desde el dashboard.',
                               style: TextStyle(color: Colors.grey, fontSize: 14),
                             ),
                             const SizedBox(height: 16),
@@ -89,12 +88,8 @@ class _QuickRouteScreenState extends State<QuickRouteScreen> {
                                 border: OutlineInputBorder(),
                                 prefixIcon: Icon(Icons.route),
                               ),
-                              validator: (value) {
-                                if (value == null || value.isEmpty) {
-                                  return 'Por favor ingrese un nombre para la ruta';
-                                }
-                                return null;
-                              },
+                              validator: (value) =>
+                                  (value == null || value.isEmpty) ? 'Requerido' : null,
                             ),
                             const SizedBox(height: 16),
                             Row(
@@ -141,13 +136,9 @@ class _QuickRouteScreenState extends State<QuickRouteScreen> {
                                     ),
                                     keyboardType: TextInputType.number,
                                     validator: (value) {
-                                      if (value == null || value.isEmpty) {
-                                        return 'Requerido';
-                                      }
+                                      if (value == null || value.isEmpty) return 'Requerido';
                                       final vessels = int.tryParse(value);
-                                      if (vessels == null || vessels <= 0) {
-                                        return 'Número inválido';
-                                      }
+                                      if (vessels == null || vessels <= 0) return 'Número inválido';
                                       return null;
                                     },
                                   ),
@@ -230,12 +221,7 @@ class _QuickRouteScreenState extends State<QuickRouteScreen> {
         );
       }).toList(),
       onChanged: onChanged,
-      validator: (value) {
-        if (value == null) {
-          return 'Requerido';
-        }
-        return null;
-      },
+      validator: (value) => value == null ? 'Requerido' : null,
     );
   }
 
@@ -252,49 +238,90 @@ class _QuickRouteScreenState extends State<QuickRouteScreen> {
       firstDate: DateTime.now(),
       lastDate: DateTime.now().add(const Duration(days: 365)),
     );
-
-    if (date != null) {
-      setState(() {
-        _departureDate = date;
-      });
-    }
+    if (date != null) setState(() => _departureDate = date);
   }
 
-  Future<void> _createRoute() async {
-    if (!_formKey.currentState!.validate()) {
-      return;
+  // --- EXTRACTOR ROBUSTO DE POLILÍNEA DESDE routeData ----
+  List<LatLng> _extractPolyline(dynamic data) {
+    dynamic candidate = data;
+
+    // Si viene envuelto
+    if (candidate is Map) {
+      for (final k in const [
+        'polyline', 'points', 'route', 'coordinates', 'path', 'data'
+      ]) {
+        if (candidate[k] != null) {
+          candidate = candidate[k];
+          break;
+        }
+      }
     }
+
+    // Ya debería ser una lista
+    if (candidate is List) {
+      final out = <LatLng>[];
+      for (final p in candidate) {
+        if (p is LatLng) {
+          out.add(p);
+        } else if (p is List && p.length >= 2) {
+          final lat = _toDouble(p[0]);
+          final lng = _toDouble(p[1]);
+          if (lat != null && lng != null) out.add(LatLng(lat, lng));
+        } else if (p is Map) {
+          final lat = _toDouble(p['lat'] ?? p['latitude']);
+          final lng = _toDouble(p['lng'] ?? p['lon'] ?? p['longitude']);
+          if (lat != null && lng != null) out.add(LatLng(lat, lng));
+        }
+      }
+      return out;
+    }
+
+    // Si todo falla, lista vacía
+    return const <LatLng>[];
+  }
+
+  double? _toDouble(dynamic v) {
+    if (v is double) return v;
+    if (v is int) return v.toDouble();
+    if (v is String) return double.tryParse(v);
+    return null;
+    }
+
+  // -------------------------------------------------------
+
+  Future<void> _createRoute() async {
+    if (!_formKey.currentState!.validate()) return;
 
     if (_originPort == null || _destinationPort == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Por favor seleccione puertos de origen y destino')),
+        const SnackBar(content: Text('Seleccione puertos de origen y destino')),
       );
       return;
     }
 
-    setState(() {
-      _isLoading = true;
-    });
+    setState(() => _isLoading = true);
 
     try {
-      // Calcular la ruta óptima
       final routeData = await _routeService.calculateOptimalRoute(
         _originPort!.name,
         _destinationPort!.name,
-        [], // Sin puertos intermedios en ruta rápida
+        const [], // rápida: sin intermedios
       );
 
-      // Navegar a la pantalla de animación
+      final polyline = _extractPolyline(routeData);
+      if (polyline.length < 2) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('La ruta no tiene suficientes puntos para animar.')),
+        );
+        return;
+      }
+
       Navigator.of(context).push(
         MaterialPageRoute(
-          builder: (context) => RouteAnimationScreen(
-            routeName: _routeNameController.text,
-            originPort: _originPort!,
-            destinationPort: _destinationPort!,
-            intermediatePorts: const [], // Sin puertos intermedios
-            routeData: routeData,
-            departureDate: _departureDate,
-            vessels: int.parse(_vesselsController.text),
+          builder: (_) => RouteAnimationScreen(
+            polyline: polyline,
+            initialKnots: 20,
+            followBoat: true,
           ),
         ),
       );
@@ -303,9 +330,7 @@ class _QuickRouteScreenState extends State<QuickRouteScreen> {
         SnackBar(content: Text('Error al crear la ruta: $e')),
       );
     } finally {
-      setState(() {
-        _isLoading = false;
-      });
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 

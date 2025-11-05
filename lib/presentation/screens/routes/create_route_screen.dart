@@ -1,9 +1,8 @@
 import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
+import 'package:latlong2/latlong.dart';
 import '../../../data/models/port_model.dart';
 import '../../../data/services/port_service.dart';
 import '../../../data/services/route_service.dart';
-import '../../providers/route_provider.dart';
 import '../../widgets/common/loading_button.dart';
 import 'route_animation_screen.dart';
 
@@ -402,17 +401,29 @@ Widget _buildCreateButton() {
         _intermediatePorts.map((p) => p.name).toList(),
       );
 
-      // Navegar a la pantalla de animación
+    // Construir la polyline para la animación a partir de las coordenadas devueltas
+      final List<LatLng> polyline = routeData.coordinates
+          .map((c) => LatLng(c.latitude, c.longitude))
+          .toList();
+
+      // Validar que existan al menos dos puntos para animar
+      if (polyline.length < 2) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('La ruta calculada no tiene suficientes puntos para animar.')),
+        );
+        return;
+      }
+
+      // Navegar a la pantalla de animación con los puntos calculados
       Navigator.of(context).push(
         MaterialPageRoute(
           builder: (context) => RouteAnimationScreen(
-            routeName: _routeNameController.text,
-            originPort: _originPort!,
-            destinationPort: _destinationPort!,
-            intermediatePorts: _intermediatePorts,
-            routeData: routeData,
-            departureDate: _departureDate,
-            vessels: int.parse(_vesselsController.text),
+            polyline: polyline,
+            // intenta completar la ruta en ~20s ajustando velocidad inicial
+            desiredDurationSeconds: 20,
+            routeInfo: routeData,
+            portNames: routeData.portNames,
+            totalNauticalMiles: routeData.totalDistance,
           ),
         ),
       );
