@@ -290,8 +290,6 @@ class _PortSelectorScreenState extends State<PortSelectorScreen> {
                 children: [
                   _buildPortSelectionSection(),
                   const SizedBox(height: 24),
-                  _buildIntermediatePortsSection(),
-                  const SizedBox(height: 24),
                   if (_showRouteVisualization) _buildRouteVisualizationSection(),
                   const SizedBox(height: 24),
                   _buildActionButtons(),
@@ -811,54 +809,69 @@ class _PortSelectorScreenState extends State<PortSelectorScreen> {
   }
 
   Widget _buildActionButtons() {
-    // Wrap en lugar de Row para que los botones hagan salto de línea en pantallas angostas
+    final bool hasSelection = _selectedOriginPort != null && _selectedDestinationPort != null;
+
+    ButtonStyle _fullWidthOutlined() => OutlinedButton.styleFrom(
+          minimumSize: const Size.fromHeight(48),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+        );
+
+    ButtonStyle _fullWidthFilled(Color color) => ElevatedButton.styleFrom(
+          backgroundColor: color,
+          foregroundColor: Colors.white,
+          minimumSize: const Size.fromHeight(48),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+        );
+
     return Padding(
       padding: const EdgeInsets.only(top: 8.0),
-      child: OverflowBar(
-        alignment: MainAxisAlignment.end,
-        spacing: 12,
-        overflowSpacing: 8,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          OutlinedButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: const Text('Cancelar'),
+          Text(
+            'Acciones',
+            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
           ),
+          const SizedBox(height: 12),
+          // Visualizar Ruta (secundario)
           ElevatedButton.icon(
-            onPressed: (_selectedOriginPort != null && _selectedDestinationPort != null)
-                ? _visualizeRoute
-                : null,
+            onPressed: hasSelection ? _visualizeRoute : null,
+            style: _fullWidthFilled(Colors.grey.shade600),
             icon: _isCalculatingRoute
                 ? const SizedBox(
-                    width: 16,
-                    height: 16,
-                    child: CircularProgressIndicator(strokeWidth: 2),
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
                   )
                 : const Icon(Icons.map),
             label: Text(_isCalculatingRoute ? 'Calculando...' : 'Visualizar Ruta'),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.grey.shade600,
-              foregroundColor: Colors.white,
-            ),
           ),
+          const SizedBox(height: 10),
+
+          // Crear Ruta (primario)
           ElevatedButton.icon(
-            onPressed: (_selectedOriginPort != null && _selectedDestinationPort != null)
-                ? _createRoute
-                : null,
+            onPressed: hasSelection ? _createRoute : null,
+            style: _fullWidthFilled(const Color(0xFF0A6CBC)),
             icon: const Icon(Icons.add),
             label: const Text('Crear Ruta'),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFF0A6CBC),
-              foregroundColor: Colors.white,
-            ),
           ),
+          const SizedBox(height: 10),
+
+          // Calcular Incoterm (habilitado tras tener datos de ruta)
           ElevatedButton.icon(
             onPressed: _routeData != null ? _showIncotermCalculator : null,
+            style: _fullWidthFilled(Colors.grey.shade600),
             icon: const Icon(Icons.calculate),
             label: const Text('Calcular Incoterm'),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.grey.shade600,
-              foregroundColor: Colors.white,
-            ),
+          ),
+          const SizedBox(height: 10),
+
+          // Cancelar (último)
+          OutlinedButton.icon(
+            onPressed: () => Navigator.of(context).pop(),
+            style: _fullWidthOutlined(),
+            icon: const Icon(Icons.close),
+            label: const Text('Cancelar'),
           ),
         ],
       ),

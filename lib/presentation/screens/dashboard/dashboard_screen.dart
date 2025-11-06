@@ -155,77 +155,51 @@ class _DashboardScreenState extends State<DashboardScreen> {
               ),
             ),
             const SizedBox(height: 16),
-            Row(
+            // Versión vertical de accesos rápidos (3 botones full width)
+            Column(
               children: [
-                Expanded(
-                  child: _buildQuickAccessCard(
-                    'Calcular Incoterms',
-                    'Determina los mejores términos comerciales',
-                    Icons.calculate,
-                    const Color(0xFF0A6CBC),
-                    () {
-                      Navigator.of(context).push(
-                        MaterialPageRoute(
-                          builder: (context) => const PortSelectorScreen(),
-                        ),
-                      );
-                    },
-                  ),
+                _buildQuickAccessCard(
+                  'Calcular Incoterms',
+                  'Determina los mejores términos comerciales',
+                  Icons.calculate,
+                  const Color(0xFF0A6CBC),
+                  () {
+                    Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (context) => const PortSelectorScreen(),
+                      ),
+                    );
+                  },
                 ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: _buildQuickAccessCard(
-                    'Visualizar Rutas',
-                    'Ve animaciones de rutas marítimas',
-                    Icons.map,
-                    Colors.green,
-                    () {
-                      // TODO: Navegar a visualización de rutas
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
-                          content: Text('Función disponible próximamente'),
-                        ),
-                      );
-                    },
-                  ),
+                const SizedBox(height: 12),
+                _buildQuickAccessCard(
+                  'Informes',
+                  'Consulta reportes de envíos',
+                  Icons.description,
+                  Colors.orange,
+                  () {
+                    // TODO: Navegar a informes
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text('Función disponible próximamente'),
+                      ),
+                    );
+                  },
                 ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            Row(
-              children: [
-                Expanded(
-                  child: _buildQuickAccessCard(
-                    'Informes',
-                    'Consulta reportes de envíos',
-                    Icons.description,
-                    Colors.orange,
-                    () {
-                      // TODO: Navegar a informes
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
-                          content: Text('Función disponible próximamente'),
-                        ),
-                      );
-                    },
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: _buildQuickAccessCard(
-                    'Configuración',
-                    'Ajusta preferencias del sistema',
-                    Icons.settings,
-                    Colors.purple,
-                    () {
-                      // TODO: Navegar a configuración
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
-                          content: Text('Función disponible próximamente'),
-                        ),
-                      );
-                    },
-                  ),
+                const SizedBox(height: 12),
+                _buildQuickAccessCard(
+                  'Configuración',
+                  'Ajusta preferencias del sistema',
+                  Icons.settings,
+                  Colors.purple,
+                  () {
+                    // TODO: Navegar a configuración
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text('Función disponible próximamente'),
+                      ),
+                    );
+                  },
                 ),
               ],
             ),
