@@ -44,6 +44,7 @@ class AppRoutes {
   static const String shipmentReports = '/shipment-reports';
   static const String routeHistory = '/route-history';
   static const String nearbyPorts = '/nearby-ports';
+  static const String settings = '/settings';
 }
 
 /// User roles matching Angular's role system

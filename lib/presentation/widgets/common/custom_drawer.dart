@@ -56,20 +56,17 @@ class CustomDrawer extends StatelessWidget {
                   context,
                   icon: Icons.settings_outlined,
                   title: 'Configuración',
-                  onTap: () {
-                    Navigator.pop(context);
-                    // TODO: Navigate to settings
-                  },
+                  route: AppRoutes.settings,
                 ),
-                _buildNavigationItem(
-                  context,
-                  icon: Icons.help_outline,
-                  title: 'Ayuda',
-                  onTap: () {
-                    Navigator.pop(context);
-                    // TODO: Navigate to help
-                  },
-                ),
+                // _buildNavigationItem(
+                //   context,
+                //   icon: Icons.help_outline,
+                //   title: 'Ayuda',
+                //   onTap: () {
+                //     Navigator.pop(context);
+                //     // TODO: Navigate to help
+                //   },
+                // ),
               ],
             ),
           ),
