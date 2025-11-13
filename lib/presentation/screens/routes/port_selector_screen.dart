@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'dart:math' as math;
 import '../../../data/models/port_model.dart';
 import '../../../data/models/route_model.dart';
 import '../../../data/services/port_service.dart';
@@ -6,6 +7,155 @@ import '../../../data/services/route_service.dart';
 import 'incoterm_calculator_screen.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart' as ll;
+import '../../../data/services/land_mask_service.dart';
+
+// --- Great-circle helpers to render curved routes ---
+double _degToRad(double d) => d * math.pi / 180.0;
+double _radToDeg(double r) => r * 180.0 / math.pi;
+
+/// Returns a polyline approximating the great-circle segment between two points.
+List<ll.LatLng> _greatCircleSegment(ll.LatLng a, ll.LatLng b, int steps) {
+  final phi1 = _degToRad(a.latitude);
+  final lambda1 = _degToRad(a.longitude);
+  final phi2 = _degToRad(b.latitude);
+  final lambda2 = _degToRad(b.longitude);
+
+  final delta = math.acos(
+    (math.sin(phi1) * math.sin(phi2)) +
+        (math.cos(phi1) * math.cos(phi2) * math.cos(lambda2 - lambda1)),
+  );
+
+  if (delta.isNaN || delta == 0) {
+    return [a, b];
+  }
+
+  final sinDelta = math.sin(delta);
+  final result = <ll.LatLng>[];
+
+  for (int i = 0; i <= steps; i++) {
+    final t = i / steps;
+    final A = math.sin((1 - t) * delta) / sinDelta;
+    final B = math.sin(t * delta) / sinDelta;
+
+    final x = A * math.cos(phi1) * math.cos(lambda1) + B * math.cos(phi2) * math.cos(lambda2);
+    final y = A * math.cos(phi1) * math.sin(lambda1) + B * math.cos(phi2) * math.sin(lambda2);
+    final z = A * math.sin(phi1) + B * math.sin(phi2);
+
+    final phi = math.atan2(z, math.sqrt(x * x + y * y));
+    final lambda = math.atan2(y, x);
+    result.add(ll.LatLng(_radToDeg(phi), _radToDeg(lambda)));
+  }
+
+  return result;
+}
+
+/// Densifies the route by replacing each straight segment with a great-circle arc.
+List<ll.LatLng> _buildGreatCirclePath(List<ll.LatLng> waypoints) {
+  if (waypoints.length < 2) return waypoints;
+  final res = <ll.LatLng>[];
+  final d = ll.Distance();
+
+  for (int i = 0; i < waypoints.length - 1; i++) {
+    final a = waypoints[i];
+    final b = waypoints[i + 1];
+    final km = d.as(ll.LengthUnit.Kilometer, a, b);
+    int steps = (km / 200).ceil(); // ~1 vertex cada 200 km
+    if (steps < 8) steps = 8;
+    if (steps > 128) steps = 128;
+
+    final seg = _greatCircleSegment(a, b, steps);
+    if (i > 0 && seg.isNotEmpty) seg.removeAt(0); // evitar duplicar vértices
+    res.addAll(seg);
+  }
+
+  return res;
+}
+
+// --- Bezier-based aesthetic curve (more pronounced visually) ---
+/// Builds a visually curved path between waypoints using quadratic Bezier segments.
+/// Useful for short east-asian routes where great-circle looks almost straight.
+List<ll.LatLng> _buildCurvedPath(List<ll.LatLng> waypoints, {double curvatureFactor = 0.25}) {
+  if (waypoints.length < 2) return waypoints;
+  final curved = <ll.LatLng>[];
+  for (int i = 0; i < waypoints.length - 1; i++) {
+    final a = waypoints[i];
+    final b = waypoints[i + 1];
+
+    // Midpoint
+    final midLat = (a.latitude + b.latitude) / 2.0;
+    final midLng = (a.longitude + b.longitude) / 2.0;
+
+    // Direction vector (planar approximation)
+    final dx = b.longitude - a.longitude;
+    final dy = b.latitude - a.latitude;
+    final dist = math.sqrt(dx * dx + dy * dy);
+    if (dist == 0) continue;
+
+    // Normal vector for perpendicular offset
+    double nx = -dy / dist;
+    double ny = dx / dist;
+
+    // Always bend "northward" for predominantly east-west segments (dy small) else bend eastward.
+    // Adjust sign so curve is consistent visually.
+    if (dx.abs() > dy.abs()) {
+      // East-West: push latitude positive
+      if (ny < 0) { nx = -nx; ny = -ny; }
+    } else {
+      // North-South: push longitude positive
+      if (nx < 0) { nx = -nx; ny = -ny; }
+    }
+
+    final offsetScale = dist * curvatureFactor; // scale by segment length
+    final ctrlLat = midLat + ny * offsetScale; // note ny corresponds to latitude change
+    final ctrlLng = midLng + nx * offsetScale; // nx corresponds to longitude change
+    final control = ll.LatLng(ctrlLat, ctrlLng);
+
+    // Sample quadratic Bezier
+    const samples = 30;
+    for (int s = 0; s <= samples; s++) {
+      final t = s / samples;
+      final lat = (1 - t) * (1 - t) * a.latitude + 2 * (1 - t) * t * control.latitude + t * t * b.latitude;
+      final lng = (1 - t) * (1 - t) * a.longitude + 2 * (1 - t) * t * control.longitude + t * t * b.longitude;
+      if (i > 0 && s == 0) continue; // avoid duplicating the start point of subsequent segments
+      curved.add(ll.LatLng(lat, lng));
+    }
+  }
+  return curved;
+}
+
+/// Genera curvas por tramo usando una normal global para que el arco sea consistente
+/// entre segmentos, similar al comportamiento de la versión web. Usa la máscara de
+/// tierra si está disponible para evitar cruces sobre tierra.
+List<ll.LatLng> _maybeCurve(List<ll.LatLng> pts) {
+  if (pts.length < 2) return pts;
+  final factor = _curvatureForDistance(pts.first, pts.last);
+  return _buildCurvedPathAvoidingLand(pts, curvatureFactor: factor);
+}
+
+// Calcula un factor de curvatura adaptativo en función de la distancia media
+// de los segmentos, para que las rutas cortas no se vean demasiado rectas.
+double _curvatureForPath(List<ll.LatLng> pts) {
+  if (pts.length < 2) return 0.33;
+  final d = ll.Distance();
+  double totalKm = 0;
+  for (int i = 0; i < pts.length - 1; i++) {
+    totalKm += d.as(ll.LengthUnit.Kilometer, pts[i], pts[i + 1]);
+  }
+  final avgKm = totalKm / (pts.length - 1);
+  if (avgKm < 800) return 0.38;      // tramos cortos: más arco
+  if (avgKm < 2000) return 0.34;     // tramos medios
+  return 0.30;                       // tramos largos: algo más sutil
+}
+
+// Factor de curvatura basado en la distancia directa origen→destino.
+double _curvatureForDistance(ll.LatLng a, ll.LatLng b) {
+  final d = ll.Distance();
+  final km = d.as(ll.LengthUnit.Kilometer, a, b);
+  if (km < 800) return 0.40;     // rutas cortas, arco visible
+  if (km < 2000) return 0.36;    // media distancia
+  if (km < 6000) return 0.32;    // larga distancia
+  return 0.30;                    // muy larga distancia, más sutil
+}
 
 
 class PortSelectorScreen extends StatefulWidget {
@@ -44,9 +194,18 @@ class _PortSelectorScreenState extends State<PortSelectorScreen> {
   void initState() {
     super.initState();
     _loadPorts();
+    LandMaskService.instance.ensureLoaded();
   }
 
   List<ll.LatLng> _buildLatLngRoute(dynamic data) {
+    // Preferir un path detallado si el backend lo provee (evita tierra)
+    try {
+      final sea = (data.seaPath as List<PortCoordinates>?) ?? const <PortCoordinates>[];
+      if (sea.isNotEmpty) {
+        return sea.map((c) => ll.LatLng(c.latitude, c.longitude)).toList();
+      }
+    } catch (_) {}
+
     // A) Formato nuevo (lo que muestras en tu JSON): optimalRoute + coordinatesMapping
     try {
       final optimal = (data.optimalRoute as List<String>?) ?? const <String>[];
@@ -621,7 +780,8 @@ class _PortSelectorScreenState extends State<PortSelectorScreen> {
   Widget _buildRouteVisualizationSection() {
     if (_routeData == null) return const SizedBox.shrink();
 
-    final points = _buildLatLngRoute(_routeData!);
+  final rawPoints = _buildLatLngRoute(_routeData!);
+  final points = _maybeCurve(rawPoints);
     // Debug para confirmar
     // print('POINTS LEN = ${points.length}');
 
@@ -894,7 +1054,8 @@ class RoutePreview extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final bounds = _bounds(points);
+  final curved = _maybeCurve(points);
+  final bounds = _bounds(curved);
 
     return SizedBox(
       height: 320,
@@ -923,23 +1084,23 @@ class RoutePreview extends StatelessWidget {
               ),
             ),
             // Polilínea de la ruta
-            if (points.length > 1)
+            if (curved.length > 1)
               PolylineLayer(
                 polylines: [
-                  Polyline(points: points, strokeWidth: 4),
+                  Polyline(points: curved, strokeWidth: 4),
                 ],
               ),
             // Marcadores origen/destino
             MarkerLayer(markers: [
-              if (points.isNotEmpty)
+              if (curved.isNotEmpty)
                 Marker(
-                  point: points.first,
+                  point: curved.first,
                   width: 32, height: 32,
                   child: const Icon(Icons.place, size: 28),
                 ),
-              if (points.length > 1)
+              if (curved.length > 1)
                 Marker(
-                  point: points.last,
+                  point: curved.last,
                   width: 32, height: 32,
                   child: const Icon(Icons.flag, size: 28),
                 ),
@@ -999,6 +1160,8 @@ class _RouteAnimationScreenState extends State<RouteAnimationScreen>
 
   @override
   Widget build(BuildContext context) {
+  // Usar los puntos tal como llegan para evitar re-curvar y generar "onditas".
+  final curved = widget.points;
     return Scaffold(
       appBar: AppBar(
         title: const Text('Animación de Ruta'),
@@ -1010,8 +1173,8 @@ class _RouteAnimationScreenState extends State<RouteAnimationScreen>
           Expanded(
             child: FlutterMap(
               options: MapOptions(
-                initialCenter: widget.points.isNotEmpty
-                    ? widget.points.first
+                initialCenter: curved.isNotEmpty
+                    ? curved.first
                     : const ll.LatLng(0, 0),
                 initialZoom: 3.5,
                 interactionOptions:
@@ -1026,16 +1189,16 @@ class _RouteAnimationScreenState extends State<RouteAnimationScreen>
                 ),
                 PolylineLayer(
                   polylines: [
-                    Polyline(points: widget.points, strokeWidth: 4),
+                    Polyline(points: curved, strokeWidth: 4),
                   ],
                 ),
                 AnimatedBuilder(
                   animation: _animation,
                   builder: (context, _) {
-                    if (widget.points.isEmpty) return const SizedBox.shrink();
+                    if (curved.isEmpty) return const SizedBox.shrink();
                     final progress = _animation.value;
-                    final index = (progress * (widget.points.length - 1)).toInt();
-                    final pos = widget.points[index.clamp(0, widget.points.length - 1)];
+                    final index = (progress * (curved.length - 1)).toInt();
+                    final pos = curved[index.clamp(0, curved.length - 1)];
                     return MarkerLayer(
                       markers: [
                         Marker(
@@ -1088,4 +1251,121 @@ class _RouteAnimationScreenState extends State<RouteAnimationScreen>
       ),
     );
   }
+}
+
+// --- Curvatura con "land mask" opcional ---
+/// Construye una ruta curvada entre waypoints y, si existe una máscara de tierra
+/// en assets, intenta elegir el lado de la curva y la intensidad para evitar cruces
+/// sobre tierra. Si no hay máscara disponible, se comporta como una curva normal.
+List<ll.LatLng> _buildCurvedPathAvoidingLand(List<ll.LatLng> waypoints, {double curvatureFactor = 0.33}) {
+  if (waypoints.length < 2) return waypoints;
+  final out = <ll.LatLng>[];
+  final lm = LandMaskService.instance;
+
+  // Normal global basada en el vector start->end para evitar zig-zag entre segmentos.
+  final first = waypoints.first;
+  final last = waypoints.last;
+  final gdx = last.longitude - first.longitude;
+  final gdy = last.latitude - first.latitude;
+  final gdist = math.sqrt(gdx * gdx + gdy * gdy);
+  double nxG = 0.0, nyG = 0.0;
+  if (gdist > 0) {
+    nxG = -gdy / gdist;
+    nyG = gdx / gdist;
+    if (gdx.abs() > gdy.abs()) {
+      if (nyG < 0) { nxG = -nxG; nyG = -nyG; }
+    } else {
+      if (nxG < 0) { nxG = -nxG; nyG = -nyG; }
+    }
+  } else {
+    // Fallback: si start==end, usar un normal arbitrario
+    nxG = 0.0; nyG = 1.0;
+  }
+
+  List<ll.LatLng> buildBezier(
+    ll.LatLng a,
+    ll.LatLng b,
+    double nx,
+    double ny,
+    double midLat,
+    double midLng,
+    double dist,
+    double factor,
+    int sign,
+    int segIndex,
+  ) {
+    final offsetScale = dist * factor;
+    final ctrlLat = midLat + (ny * sign) * offsetScale;
+    final ctrlLng = midLng + (nx * sign) * offsetScale;
+    final control = ll.LatLng(ctrlLat, ctrlLng);
+  const samples = 64;
+    final pts = <ll.LatLng>[];
+    for (int s = 0; s <= samples; s++) {
+      final t = s / samples;
+      final lat = (1 - t) * (1 - t) * a.latitude + 2 * (1 - t) * t * control.latitude + t * t * b.latitude;
+      final lng = (1 - t) * (1 - t) * a.longitude + 2 * (1 - t) * t * control.longitude + t * t * b.longitude;
+      if (segIndex > 0 && s == 0) continue;
+      pts.add(ll.LatLng(lat, lng));
+    }
+    return pts;
+  }
+
+  int landHits(List<ll.LatLng> pts, {int earlyStop = 9999}) {
+    if (!lm.isReady) return 0;
+    int hits = 0;
+    for (final p in pts) {
+      if (lm.isLand(p)) {
+        hits++;
+        if (hits >= earlyStop) break;
+      }
+    }
+    return hits;
+  }
+
+  for (int i = 0; i < waypoints.length - 1; i++) {
+    final a = waypoints[i];
+    final b = waypoints[i + 1];
+
+    final midLat = (a.latitude + b.latitude) / 2.0;
+    final midLng = (a.longitude + b.longitude) / 2.0;
+    final dx = b.longitude - a.longitude;
+    final dy = b.latitude - a.latitude;
+    final dist = math.sqrt(dx * dx + dy * dy);
+    if (dist == 0) continue;
+
+    // Usar la normal global para consistencia visual.
+    var seg = buildBezier(a, b, nxG, nyG, midLat, midLng, dist, curvatureFactor, 1, i);
+    var segHits = landHits(seg, earlyStop: 12);
+    if (segHits > 0) {
+      final alt = buildBezier(a, b, nxG, nyG, midLat, midLng, dist, curvatureFactor, -1, i);
+      final altHits = landHits(alt, earlyStop: 12);
+      if (altHits < segHits) { seg = alt; segHits = altHits; }
+
+      if (segHits > 0) {
+        final plus = buildBezier(a, b, nxG, nyG, midLat, midLng, dist, curvatureFactor * 1.5, 1, i);
+        final minus = buildBezier(a, b, nxG, nyG, midLat, midLng, dist, curvatureFactor * 1.5, -1, i);
+        final plusHits = landHits(plus, earlyStop: 12);
+        final minusHits = landHits(minus, earlyStop: 12);
+        var best = seg; var bestHits = segHits;
+        if (plusHits < bestHits) { best = plus; bestHits = plusHits; }
+        if (minusHits < bestHits) { best = minus; bestHits = minusHits; }
+
+        // Aceptar si reduce claramente o si los cruces son muy pocos (tolerancia visual)
+        if (bestHits < segHits || bestHits <= 2) {
+          seg = best; segHits = bestHits;
+        } else {
+          // Fallback a gran círculo densificado
+          final d = ll.Distance();
+          int steps = (d.as(ll.LengthUnit.Kilometer, a, b) / 200).ceil();
+          if (steps < 8) steps = 8;
+          if (steps > 128) steps = 128;
+          seg = _greatCircleSegment(a, b, steps);
+          if (i > 0 && seg.isNotEmpty) seg.removeAt(0);
+        }
+      }
+    }
+
+    out.addAll(seg);
+  }
+  return out;
 }
