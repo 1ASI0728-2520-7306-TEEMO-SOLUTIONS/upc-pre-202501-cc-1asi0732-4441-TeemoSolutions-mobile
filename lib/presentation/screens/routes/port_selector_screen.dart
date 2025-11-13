@@ -8,6 +8,8 @@ import 'incoterm_calculator_screen.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart' as ll;
 import '../../../data/services/land_mask_service.dart';
+import '../../../data/services/weather_ai_service.dart';
+import '../../../data/models/weather_delay_model.dart';
 
 // --- Great-circle helpers to render curved routes ---
 double _degToRad(double d) => d * math.pi / 180.0;
@@ -169,6 +171,7 @@ class PortSelectorScreen extends StatefulWidget {
 class _PortSelectorScreenState extends State<PortSelectorScreen> {
   final PortService _portService = PortService();
   final RouteService _routeService = RouteService();
+  final WeatherAiService _aiService = WeatherAiService();
   final TextEditingController _originSearchController = TextEditingController();
   final TextEditingController _destinationSearchController = TextEditingController();
   final TextEditingController _intermediateSearchController = TextEditingController();
@@ -187,6 +190,16 @@ class _PortSelectorScreenState extends State<PortSelectorScreen> {
   bool _showRouteVisualization = false;
   RouteCalculationResource? _routeData;
   bool _isCalculatingRoute = false;
+
+  // Estado del panel IA · Ruta
+  bool _aiLoading = false;
+  WeatherDelayResult? _aiResult;
+  DateTime? _aiUpdatedAt;
+  bool _aiCollapsed = false; // permite colapsar/expandir la card IA
+  // Inputs de parámetros (restaurados)
+  final TextEditingController _speedController = TextEditingController(text: '16');
+  final TextEditingController _windController = TextEditingController(text: '12');
+  final TextEditingController _waveController = TextEditingController(text: '2');
 
 
 
@@ -364,6 +377,9 @@ class _PortSelectorScreenState extends State<PortSelectorScreen> {
         _showRouteVisualization = true;
         _isCalculatingRoute = false;
       });
+
+      // Dispara cálculo IA al visualizar ruta
+      _fetchAiDelay();
     } catch (e) {
       setState(() {
         _isCalculatingRoute = false;
@@ -430,6 +446,226 @@ class _PortSelectorScreenState extends State<PortSelectorScreen> {
         ),
       ),
     );
+  }
+
+  Future<void> _fetchAiDelay() async {
+    if (_routeData == null || _selectedOriginPort == null || _selectedDestinationPort == null) {
+      return;
+    }
+    try {
+      setState(() {
+        _aiLoading = true;
+      });
+
+      final nm = (_routeData!.totalDistance) as num? ?? 0;
+      final distanceKm = nm.toDouble() * 1.852; // nm -> km
+      // Tomar valores ingresados para mejorar precisión de ETA y riesgo
+      final cruise = double.tryParse(_speedController.text.trim()) ?? 0;
+      final wind = double.tryParse(_windController.text.trim()) ?? 0;
+      final wave = double.tryParse(_waveController.text.trim()) ?? 0;
+      final req = WeatherDelayRequest(
+        distanceKm: distanceKm,
+        cruiseSpeedKnots: cruise,
+        avgWindKnots: wind,
+        maxWaveM: wave,
+        departureTimeIso: DateTime.now().toUtc().toIso8601String(),
+        originLat: _selectedOriginPort!.latitude,
+        originLon: _selectedOriginPort!.longitude,
+        destLat: _selectedDestinationPort!.latitude,
+        destLon: _selectedDestinationPort!.longitude,
+      );
+
+      final res = await _aiService.predictWeatherDelay(req);
+      setState(() {
+        _aiResult = res;
+        _aiUpdatedAt = DateTime.now();
+        _aiLoading = false;
+      });
+    } catch (e) {
+      setState(() {
+        _aiLoading = false;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('IA · Ruta: error al obtener predicción: $e')),
+      );
+    }
+  }
+
+  Widget _buildAiPanel() {
+    final res = _aiResult;
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Icon(Icons.auto_awesome, color: Color(0xFF0A6CBC), size: 18),
+                const SizedBox(width: 8),
+                const Text('IA · Ruta', style: TextStyle(fontWeight: FontWeight.bold)),
+                if (res != null) ...[
+                  const SizedBox(width: 8),
+                  _buildRiskBadge(res),
+                ],
+                const Spacer(),
+                IconButton(
+                  onPressed: _aiLoading ? null : _fetchAiDelay,
+                  tooltip: 'Actualizar',
+                  icon: _aiLoading
+                      ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+                      : const Icon(Icons.refresh, size: 18),
+                ),
+                IconButton(
+                  onPressed: () => setState(() => _aiCollapsed = !_aiCollapsed),
+                  tooltip: _aiCollapsed ? 'Expandir' : 'Colapsar',
+                  icon: Icon(_aiCollapsed ? Icons.expand_more : Icons.expand_less, size: 20),
+                ),
+              ],
+            ),
+            if (!_aiCollapsed) ...[
+              if (_routeData != null) ...[
+                const SizedBox(height: 4),
+                _aiSummaryRow('Origen:', _selectedOriginPort?.name ?? '—'),
+                _aiSummaryRow('Destino:', _selectedDestinationPort?.name ?? '—'),
+                _aiSummaryRow('Distancia:', '${_routeData!.totalDistance.toStringAsFixed(0)} nm'),
+                const Divider(height: 12),
+              ],
+              // Inputs ocultos para versión móvil: se usan internamente pero no se muestran.
+              if (res == null && !_aiLoading) ...[
+                const Text('Obtenga predicción de retraso por clima.'),
+                const SizedBox(height: 6),
+                SizedBox(
+                  width: double.infinity,
+                  child: OutlinedButton.icon(
+                    onPressed: _fetchAiDelay,
+                    icon: const Icon(Icons.play_circle_fill),
+                    label: const Text('Calcular ahora'),
+                  ),
+                ),
+              ] else if (_aiLoading) ...[
+                const Text('Calculando predicción...'),
+              ] else ...[
+                _aiSummaryRow('Retraso estimado:', '${_aiResult!.delayHours.toStringAsFixed(1)} h'),
+                _aiSummaryRow('Probabilidad:', _formatProbability(_aiResult!.delayProbability)),
+                if (_aiResult!.riskLevel != null || _aiResult!.riskScore != null)
+                  _aiSummaryRow('Riesgo:', _riskText(_aiResult!)),
+                if (_aiResult!.mainDelayFactor?.isNotEmpty == true)
+                  _aiSummaryRow('Causa principal:', _aiResult!.mainDelayFactor!),
+                if (_aiResult!.plannedEtaIso != null)
+                  _aiSummaryRow('ETA planificada:', _shortIso(_aiResult!.plannedEtaIso!)),
+                if (_aiResult!.adjustedEtaIso != null)
+                  _aiSummaryRow('ETA ajustada:', _shortIso(_aiResult!.adjustedEtaIso!)),
+                if (_aiResult!.usedFallback == true)
+                  Row(
+                    children: const [
+                      Icon(Icons.info_outline, size: 16, color: Colors.orange),
+                      SizedBox(width: 6),
+                      Expanded(child: Text('Se usaron valores por defecto')),
+                    ],
+                  ),
+                if (_aiUpdatedAt != null) ...[
+                  const SizedBox(height: 6),
+                  Text('Actualizado: ${_hhmm(_aiUpdatedAt!)}', style: TextStyle(fontSize: 12, color: Colors.grey.shade600)),
+                ],
+              ],
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _miniNumberField(TextEditingController c, String hint) {
+    return TextField(
+      controller: c,
+      keyboardType: const TextInputType.numberWithOptions(decimal: true),
+      decoration: InputDecoration(
+        hintText: hint,
+        isDense: true,
+        contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+        border: OutlineInputBorder(borderRadius: BorderRadius.circular(6)),
+      ),
+    );
+  }
+
+  Widget _buildRiskBadge(WeatherDelayResult r) {
+    final label = _riskLabel(r);
+    Color bg;
+    Color fg;
+    switch (label) {
+      case 'Alto': bg = Colors.red.shade50; fg = Colors.red.shade700; break;
+      case 'Medio': bg = Colors.orange.shade50; fg = Colors.orange.shade700; break;
+      default: bg = Colors.green.shade50; fg = Colors.green.shade700; break;
+    }
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: fg.withOpacity(0.4)),
+      ),
+      child: Text(label, style: TextStyle(color: fg, fontSize: 12, fontWeight: FontWeight.w600)),
+    );
+  }
+
+  String _riskLabel(WeatherDelayResult r) {
+    if (r.riskLevel != null && r.riskLevel!.isNotEmpty) {
+      final rl = r.riskLevel!.toLowerCase();
+      if (rl.contains('high') || rl.contains('alto')) return 'Alto';
+      if (rl.contains('med') || rl.contains('medio')) return 'Medio';
+      return 'Bajo';
+    }
+    // Derivar por probabilidad si no viene
+    final p = r.delayProbability <= 1 ? r.delayProbability : r.delayProbability / 100.0;
+    if (p >= 0.6) return 'Alto';
+    if (p >= 0.3) return 'Medio';
+    return 'Bajo';
+  }
+
+  String _riskText(WeatherDelayResult r) {
+    final label = _riskLabel(r);
+    if (r.riskScore != null) {
+      return '$label (${r.riskScore!.toStringAsFixed(2)})';
+    }
+    return label;
+  }
+
+  Widget _aiSummaryRow(String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 2),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Expanded(child: Text(label, style: const TextStyle(fontWeight: FontWeight.w600))),
+          const SizedBox(width: 6),
+          Expanded(child: Text(value, textAlign: TextAlign.right)),
+        ],
+      ),
+    );
+  }
+
+  String _formatProbability(double p) {
+    double pct = p;
+    if (pct <= 1.0) pct = pct * 100.0;
+    return '${pct.toStringAsFixed(0)}%';
+  }
+
+  String _shortIso(String iso) {
+    // Mostrar fecha corta y hora
+    try {
+      final dt = DateTime.parse(iso).toLocal();
+      final d = '${dt.year.toString().padLeft(4, '0')}-${dt.month.toString().padLeft(2, '0')}-${dt.day.toString().padLeft(2, '0')}';
+      final t = '${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}';
+      return '$d $t';
+    } catch (_) {
+      return iso;
+    }
+  }
+
+  String _hhmm(DateTime dt) {
+    final local = dt.toLocal();
+    return '${local.hour.toString().padLeft(2, '0')}:${local.minute.toString().padLeft(2, '0')}';
   }
 
   @override
@@ -916,6 +1152,10 @@ class _PortSelectorScreenState extends State<PortSelectorScreen> {
             ),
 
             const SizedBox(height: 12),
+            // IA · Ruta como sección/card
+            _buildAiPanel(),
+
+            const SizedBox(height: 12),
 
             // Botón Animar
             Align(
@@ -1043,6 +1283,9 @@ class _PortSelectorScreenState extends State<PortSelectorScreen> {
     _originSearchController.dispose();
     _destinationSearchController.dispose();
     _intermediateSearchController.dispose();
+    _speedController.dispose();
+    _windController.dispose();
+    _waveController.dispose();
     super.dispose();
   }
 }
