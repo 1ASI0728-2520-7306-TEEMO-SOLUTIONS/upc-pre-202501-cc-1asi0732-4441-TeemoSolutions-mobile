@@ -78,6 +78,8 @@ class RouteCalculationResource {
   final int estimatedDays;
   final List<RouteSegment> segments;
   final List<PortCoordinates> coordinates;
+  // Optional detailed sea path returned by backend (preferred for drawing)
+  final List<PortCoordinates> seaPath;
   final String status;
   final List<String> warnings; // ✅ nuevo campo
   final List<String> portNames; // ✅ nombres de puertos en orden
@@ -91,6 +93,7 @@ class RouteCalculationResource {
     required this.estimatedDays,
     required this.segments,
     required this.coordinates,
+  this.seaPath = const [],
     required this.status,
     this.warnings = const [],
     this.portNames = const [],
@@ -126,6 +129,7 @@ class RouteCalculationResource {
         estimatedDays: json['estimatedDays'] ?? 0,          // si no viene, 0
         segments: const <RouteSegment>[],                   // no viene en este formato
         coordinates: coordsList,                            // ✅ lo importante para el mapa
+        seaPath: _parsePath(json),
         status: json['status'] ?? 'calculated',
         warnings: warningsList,
         portNames: optimal,                                  // ✅ guardamos el orden de puertos
@@ -163,6 +167,7 @@ class RouteCalculationResource {
           ?.map((coord) => PortCoordinates.fromJson(coord))
           .toList() ??
           [],
+      seaPath: _parsePath(json),
       status: json['status'] ?? 'calculated',
       warnings: warningsList,
       portNames: derivedNames,
@@ -175,6 +180,27 @@ class RouteCalculationResource {
     );
   }
 
+}
+
+/// Flexible parser for server-provided detailed route path
+List<PortCoordinates> _parsePath(Map<String, dynamic> json) {
+  final candidates = [
+    'seaPath',
+    'path',
+    'polyline',
+    'polylinePoints',
+  ];
+  for (final key in candidates) {
+    final v = json[key];
+    if (v is List) {
+      try {
+        return v.map((e) => PortCoordinates.fromJson(e as Map<String, dynamic>)).toList();
+      } catch (_) {
+        // ignore and try next
+      }
+    }
+  }
+  return const <PortCoordinates>[];
 }
 
 class RouteSegment {
