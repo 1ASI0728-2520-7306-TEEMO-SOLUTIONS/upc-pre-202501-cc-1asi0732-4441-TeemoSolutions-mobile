@@ -9,7 +9,6 @@ import '../../presentation/screens/dashboard/dashboard_screen.dart';
 import '../../presentation/screens/reports/shipment_reports_screen.dart';
 import '../../presentation/screens/reports/route_history_screen.dart';
 import '../../presentation/screens/captain/nearby_ports_screen.dart';
-import '../../presentation/providers/auth_provider.dart';
 
 /// Router configuration matching Angular's app.routes.ts structure
 class AppRouter {

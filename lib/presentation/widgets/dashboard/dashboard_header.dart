@@ -1,7 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
 import '../../../core/constants/app_constants.dart';
-import '../../providers/theme_provider.dart';
 
 /// Dashboard header widget matching Angular's HeaderComponent
 class DashboardHeader extends StatelessWidget {
@@ -41,19 +39,6 @@ class DashboardHeader extends StatelessWidget {
         Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            // Theme Toggle Button
-            Consumer<ThemeProvider>(
-              builder: (context, themeProvider, child) {
-                return IconButton(
-                  icon: Icon(
-                    themeProvider.isDarkMode ? Icons.light_mode : Icons.dark_mode,
-                  ),
-                  onPressed: () => themeProvider.toggleTheme(),
-                  tooltip: themeProvider.isDarkMode ? 'Light Mode' : 'Dark Mode',
-                );
-              },
-            ),
-
             // Notifications Button
             IconButton(
               icon: const Icon(Icons.notifications_outlined),

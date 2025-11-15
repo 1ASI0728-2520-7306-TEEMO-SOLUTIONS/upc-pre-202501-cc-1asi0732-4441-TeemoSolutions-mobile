@@ -1,681 +1,513 @@
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
-import 'dart:async';
-import '../../../data/models/port_model.dart';
 import '../../../data/models/route_model.dart';
-import 'dart:math';
 
 class RouteAnimationScreen extends StatefulWidget {
-  final String routeName;
-  final Port originPort;
-  final Port destinationPort;
-  final List<Port> intermediatePorts;
-  final RouteCalculationResource routeData;
-  final DateTime departureDate;
-  final int vessels;
+  /// Puntos de la ruta (inicio -> fin)
+  final List<LatLng> polyline;
+
+  /// Velocidad inicial en nudos (1 kn ≈ 0.514444 m/s)
+  final double initialKnots;
+
+  /// Si true, la cámara sigue al barco
+  final bool followBoat;
+
+  /// Duración deseada para completar la ruta (en segundos). Si la ruta es muy larga,
+  /// se ajustará la velocidad inicial para intentar cumplir esta duración.
+  final double desiredDurationSeconds;
+
+  /// Información opcional de la ruta devuelta por el API (para mostrar card de info)
+  final RouteCalculationResource? routeInfo;
+  /// Si no se pasa routeInfo, puedes pasar solo los nombres
+  final List<String>? portNames;
+  /// Distancia total (en millas náuticas) si no viene en routeInfo
+  final double? totalNauticalMiles;
 
   const RouteAnimationScreen({
     Key? key,
-    required this.routeName,
-    required this.originPort,
-    required this.destinationPort,
-    required this.intermediatePorts,
-    required this.routeData,
-    required this.departureDate,
-    required this.vessels,
+    required this.polyline,
+    this.initialKnots = 20,
+    this.followBoat = true,
+    this.desiredDurationSeconds = 20,
+    this.routeInfo,
+    this.portNames,
+    this.totalNauticalMiles,
   }) : super(key: key);
+
+  static RouteAnimationScreen fromArgs(Object? args) {
+    if (args is List<LatLng>) return RouteAnimationScreen(polyline: args);
+    if (args is Map && args['polyline'] is List<LatLng>) {
+      return RouteAnimationScreen(polyline: (args['polyline'] as List<LatLng>));
+    }
+    return const RouteAnimationScreen(polyline: []);
+  }
 
   @override
   State<RouteAnimationScreen> createState() => _RouteAnimationScreenState();
 }
 
 class _RouteAnimationScreenState extends State<RouteAnimationScreen>
-    with TickerProviderStateMixin {
-  final MapController _mapController = MapController();
-  late AnimationController _animationController;
-  late Animation<double> _animation;
+    with SingleTickerProviderStateMixin {
+  final _mapController = MapController();
+  final _dist = const Distance();
 
-  List<LatLng> _routePoints = [];
-  List<Port> _allRoutePorts = [];
-  List<LatLng> _traveledPoints = [];
-  LatLng? _currentShipPosition;
+  // animación
+  late AnimationController _ctrl;
+  double _mps = 0; // metros/seg
+  double _baseMps = 0; // para mostrar factor x
+  double _totalMeters = 0;
+  List<double> _segLen = [];      // longitudes de cada segmento (m)
+  List<double> _cumMeters = [];   // acumulados por vértice (m)
+  int _currentSegIdx = 0;         // índice de segmento actual
 
-  bool _isAnimating = false;
-  double _animationSpeed = 3.0;
-  int _currentPortIndex = 0;
-  Timer? _animationTimer;
+  // estado del barco
+  LatLng? _boatPos;
+
+  bool get _hasRoute => widget.polyline.length >= 2;
 
   @override
   void initState() {
     super.initState();
-    _initializeAnimation();
-    _processRouteData();
-  }
+    _mps = widget.initialKnots * 0.514444;
 
-  void _initializeAnimation() {
-    _animationController = AnimationController(
-      duration: const Duration(seconds: 10),
+    _ctrl = AnimationController(
       vsync: this,
-    );
+      value: 0.0, // 0..1 a lo largo de la ruta
+    )..addListener(_onTick);
 
-    _animation = Tween<double>(
-      begin: 0.0,
-      end: 1.0,
-    ).animate(CurvedAnimation(
-      parent: _animationController,
-      curve: Curves.linear,
-    ));
-  }
-
-  void _processRouteData() {
-    // Crear lista completa de puertos en la ruta
-    _allRoutePorts = [
-      widget.originPort,
-      ...widget.intermediatePorts,
-      widget.destinationPort,
-    ];
-
-    // Crear puntos de ruta suaves
-    _createRoutePoints();
-
-    // Establecer posición inicial del barco
-    if (_routePoints.isNotEmpty) {
-      _currentShipPosition = _routePoints.first;
-    }
-
-    setState(() {});
-
-    // Ajustar el mapa para mostrar toda la ruta
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _fitMapToBounds();
-    });
-  }
-
-  void _createRoutePoints() {
-    _routePoints.clear();
-
-    for (int i = 0; i < _allRoutePorts.length - 1; i++) {
-      final currentPort = _allRoutePorts[i];
-      final nextPort = _allRoutePorts[i + 1];
-
-      // Añadir el puerto actual
-      _routePoints.add(LatLng(
-        currentPort.coordinates.latitude,
-        currentPort.coordinates.longitude,
-      ));
-
-      // Añadir puntos intermedios para suavizar la ruta
-      const steps = 20;
-      for (int step = 1; step < steps; step++) {
-        final ratio = step / steps;
-        final lat = currentPort.coordinates.latitude +
-            (nextPort.coordinates.latitude - currentPort.coordinates.latitude) *
-                ratio;
-        final lng = currentPort.coordinates.longitude +
-            (nextPort.coordinates.longitude -
-                    currentPort.coordinates.longitude) *
-                ratio;
-        _routePoints.add(LatLng(lat, lng));
+    if (_hasRoute) {
+      _precompute();
+      // Acelera para completar en el tiempo deseado si es necesario
+      final desired = widget.desiredDurationSeconds <= 0 ? 20.0 : widget.desiredDurationSeconds;
+      final recommended = desired > 0 ? _totalMeters / desired : 0.0; // m/s
+      if (recommended.isFinite && recommended > 0 && recommended > _mps) {
+        _mps = recommended;
       }
-    }
-
-    // Añadir el último puerto
-    if (_allRoutePorts.isNotEmpty) {
-      final lastPort = _allRoutePorts.last;
-      _routePoints.add(LatLng(
-        lastPort.coordinates.latitude,
-        lastPort.coordinates.longitude,
-      ));
-    }
-  }
-
-  void _fitMapToBounds() {
-    if (_routePoints.isEmpty) return;
-
-    double minLat = _routePoints.first.latitude;
-    double maxLat = _routePoints.first.latitude;
-    double minLng = _routePoints.first.longitude;
-    double maxLng = _routePoints.first.longitude;
-
-    for (final point in _routePoints) {
-      minLat = minLat < point.latitude ? minLat : point.latitude;
-      maxLat = maxLat > point.latitude ? maxLat : point.latitude;
-      minLng = minLng < point.longitude ? minLng : point.longitude;
-      maxLng = maxLng > point.longitude ? maxLng : point.longitude;
-    }
-
-    final bounds = LatLngBounds(
-      LatLng(minLat, minLng),
-      LatLng(maxLat, maxLng),
-    );
-
-    _mapController.fitBounds(bounds,
-        options: const FitBoundsOptions(padding: EdgeInsets.all(50)));
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: Text(widget.routeName),
-        backgroundColor: const Color(0xFF0A6CBC),
-        foregroundColor: Colors.white,
-      ),
-      body: Column(
-        children: [
-          _buildAnimationControls(),
-          _buildRouteInfo(),
-          Expanded(child: _buildMap()),
-          _buildPortsList(),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildAnimationControls() {
-    return Card(
-      margin: const EdgeInsets.all(8),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-              children: [
-                ElevatedButton.icon(
-                  onPressed: _routePoints.isEmpty ? null : _toggleAnimation,
-                  icon: Icon(_isAnimating ? Icons.pause : Icons.play_arrow),
-                  label: Text(_isAnimating ? 'Pausar' : 'Iniciar'),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor:
-                        _isAnimating ? Colors.red : const Color(0xFF0A6CBC),
-                    foregroundColor: Colors.white,
-                  ),
-                ),
-                ElevatedButton.icon(
-                  onPressed: _routePoints.isEmpty ? null : _resetAnimation,
-                  icon: const Icon(Icons.refresh),
-                  label: const Text('Reiniciar'),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.grey,
-                    foregroundColor: Colors.white,
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 16),
-            Row(
-              children: [
-                const Text('Velocidad: '),
-                Expanded(
-                  child: Slider(
-                    value: _animationSpeed,
-                    min: 1.0,
-                    max: 10.0,
-                    divisions: 9,
-                    label: '${_animationSpeed.toInt()}x',
-                    onChanged: (value) {
-                      setState(() {
-                        _animationSpeed = value;
-                      });
-                      if (_isAnimating) {
-                        _stopAnimation();
-                        _startAnimation();
-                      }
-                    },
-                  ),
-                ),
-                Text('${_animationSpeed.toInt()}x'),
-              ],
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildRouteInfo() {
-    return Card(
-      margin: const EdgeInsets.symmetric(horizontal: 8),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              'Información de la Ruta',
-              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 8),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                _buildInfoItem('Distancia Total',
-                    '${widget.routeData.totalDistance.toStringAsFixed(0)} mn'),
-                _buildInfoItem('Puertos', '${_allRoutePorts.length}'),
-              ],
-            ),
-            if (_currentPortIndex < _allRoutePorts.length) ...[
-              const SizedBox(height: 8),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  _buildInfoItem(
-                      'Puerto Actual', _allRoutePorts[_currentPortIndex].name),
-                  if (_currentPortIndex < _allRoutePorts.length - 1)
-                    _buildInfoItem('Próximo Puerto',
-                        _allRoutePorts[_currentPortIndex + 1].name),
-                ],
-              ),
-            ],
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildInfoItem(String label, String value) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          label,
-          style: const TextStyle(fontSize: 12, color: Colors.grey),
-        ),
-        Text(
-          value,
-          style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildMap() {
-    return Card(
-      margin: const EdgeInsets.all(8),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(8),
-        child: FlutterMap(
-          mapController: _mapController,
-          options: MapOptions(
-            center:
-                _routePoints.isNotEmpty ? _routePoints.first : LatLng(20, 0),
-            zoom: 2,
-            minZoom: 2,
-            maxZoom: 18,
-          ),
-          children: [
-            TileLayer(
-              urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-              userAgentPackageName: 'com.example.mushroom_mobile',
-            ),
-            // Ruta completa (gris)
-            if (_routePoints.isNotEmpty)
-              PolylineLayer(
-                polylines: [
-                  Polyline(
-                    points: _routePoints,
-                    strokeWidth: 3,
-                    color: Colors.grey.withOpacity(0.7),
-                  ),
-                ],
-              ),
-            // Ruta recorrida (azul)
-            if (_traveledPoints.isNotEmpty)
-              PolylineLayer(
-                polylines: [
-                  Polyline(
-                    points: _traveledPoints,
-                    strokeWidth: 4,
-                    color: const Color(0xFF0A6CBC),
-                  ),
-                ],
-              ),
-            // Marcadores de puertos
-            MarkerLayer(
-              markers: _allRoutePorts.asMap().entries.map((entry) {
-                final index = entry.key;
-                final port = entry.value;
-
-                Color color;
-                double size;
-
-                if (index == 0) {
-                  color = Colors.green;
-                  size = 30;
-                } else if (index == _allRoutePorts.length - 1) {
-                  color = Colors.red;
-                  size = 30;
-                } else {
-                  color = Colors.purple;
-                  size = 25;
-                }
-
-                return Marker(
-                  point: LatLng(port.latitude, port.longitude),
-                  width: size,
-                  height: size,
-                  child: GestureDetector(
-                    onTap: () => _showPortInfo(port, index),
-                    child: Container(
-                      decoration: BoxDecoration(
-                        color: color,
-                        shape: BoxShape.circle,
-                        border: Border.all(color: Colors.white, width: 3),
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.black.withOpacity(0.3),
-                            blurRadius: 4,
-                            offset: const Offset(0, 2),
-                          ),
-                        ],
-                      ),
-                      child: const Icon(
-                        Icons.anchor,
-                        color: Colors.white,
-                        size: 16,
-                      ),
-                    ),
-                  ),
-                );
-              }).toList(),
-            ),
-            // Marcador del barco
-            if (_currentShipPosition != null)
-              MarkerLayer(
-                markers: _allRoutePorts.asMap().entries.map((entry) {
-                  final index = entry.key;
-                  final port = entry.value;
-
-                  Color color;
-                  double size;
-
-                  if (index == 0) {
-                    color = Colors.green;
-                    size = 30;
-                  } else if (index == _allRoutePorts.length - 1) {
-                    color = Colors.red;
-                    size = 30;
-                  } else {
-                    color = Colors.purple;
-                    size = 25;
-                  }
-
-                  return Marker(
-                    point: LatLng(port.latitude, port.longitude),
-                    width: size,
-                    height: size,
-                    child: GestureDetector(
-                      // <-- CAMBIO: 'builder' por 'child'
-                      onTap: () => _showPortInfo(port, index),
-                      child: Container(
-                        decoration: BoxDecoration(
-                          color: color,
-                          shape: BoxShape.circle,
-                          border: Border.all(color: Colors.white, width: 3),
-                          boxShadow: [
-                            BoxShadow(
-                              color: Colors.black.withOpacity(0.3),
-                              blurRadius: 4,
-                              offset: const Offset(0, 2),
-                            ),
-                          ],
-                        ),
-                        child: const Icon(
-                          Icons.anchor,
-                          color: Colors.white,
-                          size: 16,
-                        ),
-                      ),
-                    ),
-                  );
-                }).toList(),
-              ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildPortsList() {
-    return Card(
-      margin: const EdgeInsets.all(8),
-      child: Column(
-        children: [
-          const Padding(
-            padding: EdgeInsets.all(16),
-            child: Text(
-              'Puertos en la Ruta',
-              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-            ),
-          ),
-          SizedBox(
-            height: 120,
-            child: ListView.builder(
-              scrollDirection: Axis.horizontal,
-              padding: const EdgeInsets.symmetric(horizontal: 8),
-              itemCount: _allRoutePorts.length,
-              itemBuilder: (context, index) {
-                final port = _allRoutePorts[index];
-                final isVisited = index < _currentPortIndex;
-                final isCurrent = index == _currentPortIndex;
-                final isPending = index > _currentPortIndex;
-
-                Color cardColor;
-                Color textColor;
-                IconData statusIcon;
-
-                if (isVisited) {
-                  cardColor = Colors.green.withOpacity(0.1);
-                  textColor = Colors.green;
-                  statusIcon = Icons.check_circle;
-                } else if (isCurrent) {
-                  cardColor = const Color(0xFF0A6CBC).withOpacity(0.1);
-                  textColor = const Color(0xFF0A6CBC);
-                  statusIcon = Icons.access_time;
-                } else {
-                  cardColor = Colors.grey.withOpacity(0.1);
-                  textColor = Colors.grey;
-                  statusIcon = Icons.radio_button_unchecked;
-                }
-
-                return Container(
-                  width: 200,
-                  margin: const EdgeInsets.symmetric(horizontal: 4),
-                  child: Card(
-                    color: cardColor,
-                    child: Padding(
-                      padding: const EdgeInsets.all(12),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
-                            children: [
-                              CircleAvatar(
-                                radius: 12,
-                                backgroundColor: textColor,
-                                child: Text(
-                                  '${index + 1}',
-                                  style: const TextStyle(
-                                    color: Colors.white,
-                                    fontSize: 12,
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                ),
-                              ),
-                              const Spacer(),
-                              Icon(statusIcon, color: textColor, size: 20),
-                            ],
-                          ),
-                          const SizedBox(height: 8),
-                          Text(
-                            port.name,
-                            style: TextStyle(
-                              fontWeight: FontWeight.bold,
-                              color: textColor,
-                            ),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                          Text(
-                            '${port.coordinates.latitude.toStringAsFixed(2)}°, ${port.coordinates.longitude.toStringAsFixed(2)}°',
-                            style: TextStyle(
-                              fontSize: 10,
-                              color: textColor.withOpacity(0.7),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                );
-              },
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  void _showPortInfo(Port port, int index) {
-    String portType;
-    if (index == 0) {
-      portType = 'Origen';
-    } else if (index == _allRoutePorts.length - 1) {
-      portType = 'Destino';
-    } else {
-      portType = 'Puerto Intermedio';
-    }
-
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text(port.name),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('Tipo: $portType'),
-            const SizedBox(height: 8),
-            Text('Continente: ${port.continent}'),
-            const SizedBox(height: 8),
-            Text(
-                'Coordenadas: ${port.coordinates.latitude.toStringAsFixed(4)}, ${port.coordinates.longitude.toStringAsFixed(4)}'),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: const Text('Cerrar'),
-          ),
-        ],
-      ),
-    );
-  }
-
-  void _toggleAnimation() {
-    if (_isAnimating) {
-      _stopAnimation();
-    } else {
-      _startAnimation();
-    }
-  }
-
-  void _startAnimation() {
-    if (_routePoints.isEmpty) return;
-
-    setState(() {
-      _isAnimating = true;
-    });
-
-    _animationTimer = Timer.periodic(
-      Duration(milliseconds: (100 / _animationSpeed).round()),
-      (timer) => _animateStep(),
-    );
-  }
-
-  void _stopAnimation() {
-    setState(() {
-      _isAnimating = false;
-    });
-
-    _animationTimer?.cancel();
-    _animationTimer = null;
-  }
-
-  void _animateStep() {
-    if (_traveledPoints.length >= _routePoints.length - 1) {
-      _stopAnimation();
-      return;
-    }
-
-    setState(() {
-      final nextIndex = _traveledPoints.length;
-      _traveledPoints.add(_routePoints[nextIndex]);
-      _currentShipPosition = _routePoints[nextIndex];
-
-      // Actualizar puerto actual
-      _updateCurrentPort();
-    });
-  }
-
-  void _updateCurrentPort() {
-    if (_currentShipPosition == null || _allRoutePorts.isEmpty) return;
-
-    double minDistance = double.infinity;
-    int closestPortIndex = 0;
-
-    for (int i = 0; i < _allRoutePorts.length; i++) {
-      final port = _allRoutePorts[i];
-      final portLatLng =
-          LatLng(port.coordinates.latitude, port.coordinates.longitude);
-      final distance = _calculateDistance(_currentShipPosition!, portLatLng);
-
-      if (distance < minDistance) {
-        minDistance = distance;
-        closestPortIndex = i;
-      }
-    }
-
-    if (closestPortIndex != _currentPortIndex) {
-      setState(() {
-        _currentPortIndex = closestPortIndex;
+      _baseMps = _mps;
+      _boatPos = widget.polyline.first;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _fitBounds();
+        // Auto-start suave tras encuadrar la ruta
+        Future.delayed(const Duration(milliseconds: 300), _start);
       });
     }
   }
 
-  double _calculateDistance(LatLng point1, LatLng point2) {
-    const double earthRadius = 6371000; // metros
-    final double lat1Rad = point1.latitude * (3.14159 / 180);
-    final double lat2Rad = point2.latitude * (3.14159 / 180);
-    final double deltaLatRad =
-        (point2.latitude - point1.latitude) * (3.14159 / 180);
-    final double deltaLngRad =
-        (point2.longitude - point1.longitude) * (3.14159 / 180);
-
-    final a = pow(sin(deltaLatRad / 2), 2) +
-        cos(lat1Rad) * cos(lat2Rad) * pow(sin(deltaLngRad / 2), 2);
-
-    final c = 2 * atan2(sqrt(a), sqrt(1 - a));
-
-    return earthRadius * c;
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
   }
 
-  void _resetAnimation() {
-    _stopAnimation();
-    setState(() {
-      _traveledPoints.clear();
-      _currentShipPosition =
-          _routePoints.isNotEmpty ? _routePoints.first : null;
-      _currentPortIndex = 0;
-    });
+  void _precompute() {
+    _segLen.clear();
+    _cumMeters = [0.0];
+    _totalMeters = 0;
+
+    for (var i = 0; i < widget.polyline.length - 1; i++) {
+      final d = _dist.distance(widget.polyline[i], widget.polyline[i + 1]); // m
+      _segLen.add(d);
+      _totalMeters += d;
+      _cumMeters.add(_totalMeters);
+    }
+  }
+
+  void _fitBounds() {
+    double minLat =  90, minLng =  180;
+    double maxLat = -90, maxLng = -180;
+    for (final p in widget.polyline) {
+      minLat = math.min(minLat, p.latitude);
+      maxLat = math.max(maxLat, p.latitude);
+      minLng = math.min(minLng, p.longitude);
+      maxLng = math.max(maxLng, p.longitude);
+    }
+    _mapController.fitCamera(
+      CameraFit.bounds(
+        bounds: LatLngBounds(LatLng(minLat, minLng), LatLng(maxLat, maxLng)),
+        padding: const EdgeInsets.all(40),
+      ),
+    );
+  }
+
+  // ---- control de animación
+
+  void _onTick() {
+    if (!_hasRoute) return;
+
+    final t = _ctrl.value.clamp(0.0, 1.0);
+    final traveled = t * _totalMeters;
+
+    // localiza el segmento donde cae "traveled"
+    int i = 0;
+    while (i < _segLen.length && _cumMeters[i + 1] < traveled) {
+      i++;
+    }
+    _currentSegIdx = i; // para el card de información
+    if (i >= _segLen.length) {
+      _boatPos = widget.polyline.last;
+    } else {
+      final a = widget.polyline[i];
+      final b = widget.polyline[i + 1];
+      final segStart = _cumMeters[i];
+      final segLen = _segLen[i] == 0 ? 1.0 : _segLen[i];
+      final localT = ((traveled - segStart) / segLen).clamp(0.0, 1.0);
+      _boatPos = LatLng(
+        a.latitude + (b.latitude - a.latitude) * localT,
+        a.longitude + (b.longitude - a.longitude) * localT,
+      );
+    }
+
+    if (widget.followBoat && _boatPos != null) {
+      _mapController.move(_boatPos!, _mapController.camera.zoom);
+    }
+
+    if (mounted) setState(() {}); // repinta
+  }
+
+  void _start() {
+    if (!_hasRoute || _totalMeters <= 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('La animación necesita al menos dos puntos.')),
+      );
+      return;
+    }
+
+    // ajusta duración según velocidad actual y progreso actual
+    final remainingMeters = (1.0 - _ctrl.value) * _totalMeters;
+    final seconds = remainingMeters / (_mps <= 0 ? 0.1 : _mps);
+    _ctrl.animateTo(
+      1.0,
+      duration: Duration(milliseconds: (seconds * 1000).round()),
+      curve: Curves.linear,
+    );
+  }
+
+  void _pause() {
+    _ctrl.stop();
+  }
+
+  void _reset() {
+    _ctrl.stop();
+    _ctrl.value = 0.0;
+    _boatPos = _hasRoute ? widget.polyline.first : null;
+    setState(() {});
+    if (widget.followBoat && _boatPos != null) {
+      _mapController.move(_boatPos!, _mapController.camera.zoom);
+    }
+  }
+
+  void _changeSpeed(double newMps) {
+    // si está corriendo, re-calcula duración restante con la nueva velocidad
+    final wasAnimating = _ctrl.isAnimating;
+    _ctrl.stop();
+    _mps = newMps;
+
+    if (wasAnimating) {
+      _start();
+    } else {
+      setState(() {}); // solo repinta el texto de velocidad
+    }
   }
 
   @override
-  void dispose() {
-    _animationController.dispose();
-    _animationTimer?.cancel();
-    super.dispose();
+  Widget build(BuildContext context) {
+    final hasRoute = _hasRoute;
+    final info = widget.routeInfo;
+    final names = info?.portNames.isNotEmpty == true
+        ? info!.portNames
+        : (widget.portNames ?? const <String>[]);
+    final totalNm = info?.totalDistance ?? widget.totalNauticalMiles;
+    final origin = names.isNotEmpty ? names.first : null;
+    final destination = names.length > 1 ? names.last : null;
+
+    return Scaffold(
+      appBar: AppBar(title: const Text('Animación de Ruta')),
+      body: Column(
+        children: [
+          if (hasRoute)
+            _HeaderCard(
+              origin: origin,
+              destination: destination,
+              totalNm: totalNm,
+            ),
+          if (hasRoute)
+            _InfoCard(
+              totalNm: totalNm,
+              portNames: names,
+              currentIndex: _currentSegIdx,
+              landActive: info?.landDetectionActive,
+              landCount: info?.landFeaturesCount,
+            ),
+          Expanded(
+            child: FlutterMap(
+              mapController: _mapController,
+              options: MapOptions(
+                initialCenter: hasRoute ? widget.polyline.first : const LatLng(0, 0),
+                initialZoom: hasRoute ? 6 : 3,
+              ),
+              children: [
+                // usa el mismo tile server que funcionó en la otra pantalla
+                TileLayer(
+                  // OSM estándar sin subdominios (recomendado por operaciones OSM)
+                  urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                  // Debe coincidir con el applicationId/bundleId real
+                  userAgentPackageName: 'pe.edu.upc.mushroom',
+                  maxZoom: 19,
+                  tileProvider: NetworkTileProvider(
+                    // Evitar const para permitir que el provider combine headers
+                    headers: {
+                      'User-Agent': 'pe.edu.upc.mushroom/1.0 (+https://upc.edu.pe)',
+                    },
+                  ),
+                ),
+                if (hasRoute)
+                  PolylineLayer(
+                    polylines: [
+                      Polyline(
+                        points: widget.polyline,
+                        strokeWidth: 4,
+                        color: Colors.greenAccent,
+                      ),
+                    ],
+                  ),
+                if (_boatPos != null)
+                  MarkerLayer(
+                    markers: [
+                      Marker(
+                        point: _boatPos!,
+                        width: 40,
+                        height: 40,
+                        alignment: Alignment.center,
+                        // En flutter_map 6.x evitamos rotación por compatibilidad
+                        rotate: false,
+                        child: const Icon(
+                          Icons.directions_boat,
+                          size: 28,
+                          color: Colors.blueAccent,
+                        ),
+                      ),
+                    ],
+                  ),
+              ],
+            ),
+          ),
+          _Controls(
+            mps: _mps,
+            baseMps: _baseMps,
+            isRunning: _ctrl.isAnimating,
+            onSpeedChanged: _changeSpeed,
+            onStart: _start,
+            onPause: _pause,
+            onReset: _reset,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _InfoCard extends StatelessWidget {
+  final double? totalNm;
+  final List<String> portNames;
+  final int currentIndex;
+  final bool? landActive;
+  final int? landCount;
+
+  const _InfoCard({
+    required this.totalNm,
+    required this.portNames,
+    required this.currentIndex,
+    this.landActive,
+    this.landCount,
+  });
+
+  String _formatNm(double v) {
+    // formato simple con separador de miles
+    final s = v.toStringAsFixed(0);
+    final reg = RegExp(r"(\d)(?=(\d{3})+(?!\d))");
+    return s.replaceAllMapped(reg, (m) => "${m[1]},");
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final totalPorts = portNames.isNotEmpty ? portNames.length : null;
+    final current = (portNames.isNotEmpty && currentIndex < portNames.length)
+        ? portNames[currentIndex]
+        : null;
+    final next = (portNames.isNotEmpty && currentIndex + 1 < portNames.length)
+        ? portNames[currentIndex + 1]
+        : null;
+
+    return Card(
+      margin: const EdgeInsets.fromLTRB(12, 12, 12, 8),
+      child: Padding(
+        padding: const EdgeInsets.all(12.0),
+        child: Wrap(
+          spacing: 24,
+          runSpacing: 8,
+          crossAxisAlignment: WrapCrossAlignment.center,
+          children: [
+            _kv('Distancia Total:',
+                totalNm != null ? '${_formatNm(totalNm!)} millas náuticas' : '—'),
+            _kv('Puertos en la Ruta:', totalPorts?.toString() ?? '—'),
+            _kv('Puerto Actual:', current ?? '—', strong: true),
+            _kv('Próximo Puerto:', next ?? '—'),
+            _kv('Detección de Tierra:',
+                landActive == null
+                    ? '—'
+                    : (landActive! ? '✓ Activa${landCount != null ? ' (${_formatNm(landCount!.toDouble())} características)' : ''}'
+                                   : 'Inactiva')),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _kv(String k, String v, {bool strong = false}) {
+    final styleK = TextStyle(color: Colors.grey.shade600);
+    final styleV = TextStyle(
+      fontWeight: strong ? FontWeight.w700 : FontWeight.w600,
+    );
+    return Row(
+      children: [
+        Text(k, style: styleK),
+        const SizedBox(width: 6),
+        Text(v, style: styleV),
+      ],
+    );
+  }
+}
+
+class _HeaderCard extends StatelessWidget {
+  final String? origin;
+  final String? destination;
+  final double? totalNm;
+
+  const _HeaderCard({
+    this.origin,
+    this.destination,
+    this.totalNm,
+  });
+
+  String _formatNm(double v) {
+    final s = v.toStringAsFixed(0);
+    final reg = RegExp(r"(\d)(?=(\d{3})+(?!\d))");
+    return s.replaceAllMapped(reg, (m) => "${m[1]},");
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      margin: const EdgeInsets.fromLTRB(12, 12, 12, 8),
+      child: Padding(
+        padding: const EdgeInsets.all(12.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('Visualización de Ruta', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 24,
+              runSpacing: 8,
+              children: [
+                _kv('Origen:', origin ?? '—', bold: true),
+                _kv('Destino:', destination ?? '—', bold: true),
+                _kv('Distancia Total:',
+                    totalNm != null ? '${_formatNm(totalNm!)} millas náuticas' : '—'),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _kv(String k, String v, {bool bold = false}) {
+    final styleK = TextStyle(color: Colors.grey.shade700, fontWeight: FontWeight.w600);
+    final styleV = TextStyle(fontWeight: bold ? FontWeight.w700 : FontWeight.w600);
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(k, style: styleK),
+        const SizedBox(width: 6),
+        Text(v, style: styleV),
+      ],
+    );
+  }
+}
+
+class _Controls extends StatelessWidget {
+  final double mps;
+  final double baseMps;
+  final bool isRunning;
+  final ValueChanged<double> onSpeedChanged;
+  final VoidCallback onStart;
+  final VoidCallback onPause;
+  final VoidCallback onReset;
+
+  const _Controls({
+    required this.mps,
+    required this.baseMps,
+    required this.isRunning,
+    required this.onSpeedChanged,
+    required this.onStart,
+    required this.onPause,
+    required this.onReset,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surface,
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.06),
+            blurRadius: 8,
+            offset: const Offset(0, -2),
+          )
+        ],
+      ),
+      child: Column(
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.speed),
+              const SizedBox(width: 10),
+              Text('Velocidad:', style: TextStyle(color: Colors.grey.shade700)),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Slider(
+                  value: mps,
+                  min: baseMps * 0.2, // 0.2x
+                  max: math.max(baseMps * 6, mps * 1.5), // hasta 6x o más
+                  onChanged: onSpeedChanged,
+                ),
+              ),
+              Text("${(mps / (baseMps == 0 ? 1 : baseMps)).toStringAsFixed(1)}x"),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+            children: [
+              ElevatedButton.icon(
+                onPressed: isRunning ? null : onStart,
+                icon: const Icon(Icons.play_arrow),
+                label: const Text('Iniciar Animación'),
+              ),
+              ElevatedButton.icon(
+                onPressed: onReset,
+                icon: const Icon(Icons.replay),
+                label: const Text('Reiniciar'),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
   }
 }
