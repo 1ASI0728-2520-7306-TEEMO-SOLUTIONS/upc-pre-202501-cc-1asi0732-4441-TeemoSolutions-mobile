@@ -6,6 +6,12 @@ import '../../../data/services/report_local_store.dart';
 import '../../../core/constants/app_constants.dart';
 import 'package:go_router/go_router.dart';
 import '../../widgets/common/loading_button.dart';
+import 'package:pdf/widgets.dart' as pw;
+import 'package:printing/printing.dart';
+import 'package:excel/excel.dart' as xls;
+
+import 'dart:typed_data';
+
 
 class IncotermCalculatorScreen extends StatefulWidget {
   final String originPort;
@@ -22,6 +28,8 @@ class IncotermCalculatorScreen extends StatefulWidget {
   @override
   State<IncotermCalculatorScreen> createState() => _IncotermCalculatorScreenState();
 }
+
+
 
 class _IncotermCalculatorScreenState extends State<IncotermCalculatorScreen> {
   final _formKey = GlobalKey<FormState>();
@@ -775,26 +783,58 @@ class _IncotermCalculatorScreenState extends State<IncotermCalculatorScreen> {
   }
 
   Widget _buildResultActions() {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.end,
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.end,
       children: [
-        OutlinedButton(
-          onPressed: _resetCalculation,
-          child: const Text('Volver al Formulario'),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.end,
+          children: [
+            OutlinedButton(
+              onPressed: _resetCalculation,
+              child: const Text('Volver al Formulario'),
+            ),
+            const SizedBox(width: 12),
+            ElevatedButton.icon(
+              onPressed: _createReport,
+              icon: const Icon(Icons.description),
+              label: const Text('Crear Informe'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF0A6CBC),
+                foregroundColor: Colors.white,
+              ),
+            ),
+          ],
         ),
-        const SizedBox(width: 12),
-        ElevatedButton.icon(
-          onPressed: _createReport,
-          icon: const Icon(Icons.description),
-          label: const Text('Crear Informe'),
-          style: ElevatedButton.styleFrom(
-            backgroundColor: const Color(0xFF0A6CBC),
-            foregroundColor: Colors.white,
-          ),
+        const SizedBox(height: 16),
+        // 🔽 Aquí los dos botones que pediste
+        Row(
+          mainAxisAlignment: MainAxisAlignment.end,
+          children: [
+            ElevatedButton.icon(
+              onPressed: _downloadPdfFromResult,
+              icon: const Icon(Icons.picture_as_pdf),
+              label: const Text('Descargar PDF'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.redAccent,
+                foregroundColor: Colors.white,
+              ),
+            ),
+            const SizedBox(width: 12),
+            ElevatedButton.icon(
+              onPressed: _downloadExcelFromResult,
+              icon: const Icon(Icons.table_view),
+              label: const Text('Descargar Excel'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.green,
+                foregroundColor: Colors.white,
+              ),
+            ),
+          ],
         ),
       ],
     );
   }
+
 
   bool _isFormValid() {
     return _formData.cargoType.isNotEmpty &&
@@ -884,6 +924,228 @@ class _IncotermCalculatorScreenState extends State<IncotermCalculatorScreen> {
       context.go(AppRoutes.shipmentReports);
     });
   }
+
+
+
+
+  Future<void> _downloadPdfFromResult() async {
+    if (_calculationResult == null) return;
+
+    final pdf = pw.Document();
+    final inc = _calculationResult!.recommendedIncoterm;
+
+    pdf.addPage(
+      pw.Page(
+        build: (pw.Context context) {
+          return pw.Column(
+            crossAxisAlignment: pw.CrossAxisAlignment.start,
+            children: [
+              pw.Text(
+                'Reporte de Incoterm',
+                style: pw.TextStyle(fontSize: 20, fontWeight: pw.FontWeight.bold),
+              ),
+              pw.SizedBox(height: 16),
+              pw.Text('Ruta: ${widget.originPort} → ${widget.destinationPort}'),
+              pw.Text('Distancia: ${widget.distance.toStringAsFixed(0)} millas náuticas'),
+              pw.SizedBox(height: 12),
+              pw.Text(
+                'Incoterm recomendado: ${inc.code} - ${inc.name}',
+                style: pw.TextStyle(fontSize: 14),
+              ),
+              pw.SizedBox(height: 12),
+              pw.Text('Desglose de costos (USD):',
+                  style: pw.TextStyle(fontWeight: pw.FontWeight.bold)),
+              pw.SizedBox(height: 6),
+
+              // ⬇️ aquí van TODOS los campos de tu CostBreakdown
+              pw.Bullet(text: 'Flete: \$${inc.costBreakdown.freight.toStringAsFixed(0)}'),
+              pw.Bullet(text: 'Seguro: \$${inc.costBreakdown.insurance.toStringAsFixed(0)}'),
+              pw.Bullet(
+                text:
+                'Despacho aduanero: \$${inc.costBreakdown.customsClearance.toStringAsFixed(0)}',
+              ),
+              pw.Bullet(
+                text: 'Manejo en puerto: \$${inc.costBreakdown.portHandling.toStringAsFixed(0)}',
+              ),
+              // 🔴 ESTE FALTABA
+              pw.Bullet(
+                text: 'Documentación: \$${inc.costBreakdown.documentation.toStringAsFixed(0)}',
+              ),
+              pw.SizedBox(height: 4),
+              pw.Text(
+                'Total: \$${inc.costBreakdown.total.toStringAsFixed(0)}',
+                style: pw.TextStyle(fontWeight: pw.FontWeight.bold),
+              ),
+
+              if (_calculationResult!.warnings.isNotEmpty) ...[
+                pw.SizedBox(height: 12),
+                pw.Text('Advertencias:', style: pw.TextStyle(fontWeight: pw.FontWeight.bold)),
+                ..._calculationResult!.warnings.map((w) => pw.Bullet(text: w)),
+              ],
+            ],
+          );
+        },
+      ),
+    );
+
+    await Printing.layoutPdf(
+      onLayout: (format) async => pdf.save(),
+    );
+  }
+
+
+  Future<void> _downloadExcelFromResult() async {
+    if (_calculationResult == null) return;
+
+    final excel = xls.Excel.createExcel();
+
+    // renombrar la hoja por defecto en vez de crear otra
+    final defaultSheet = excel.sheets.keys.first;
+    excel.rename(defaultSheet, 'Incoterm');
+
+    final sheet = excel['Incoterm'];
+
+
+    final inc = _calculationResult!.recommendedIncoterm;
+
+    // helper para no repetir
+    xls.CellValue txt(String v) => xls.TextCellValue(v);
+
+    // estilos sencillos compatibles
+    final headerStyle = xls.CellStyle(
+      bold: true,
+      horizontalAlign: xls.HorizontalAlign.Center,
+      verticalAlign: xls.VerticalAlign.Center,
+    );
+
+    final bodyStyle = xls.CellStyle(
+      verticalAlign: xls.VerticalAlign.Center,
+    );
+
+    final moneyStyle = xls.CellStyle(
+      verticalAlign: xls.VerticalAlign.Center,
+      horizontalAlign: xls.HorizontalAlign.Right,
+    );
+
+    // 1) encabezados
+    final headers = [
+      'Origen',
+      'Destino',
+      'Distancia (mn)',
+      'Incoterm',
+      'Nombre',
+      'Flete',
+      'Seguro',
+      'Despacho Aduanero',
+      'Manejo en Puerto',
+      'Documentación',
+      'Costo Total (USD)',
+    ];
+
+    sheet.appendRow(headers.map((h) => txt(h)).toList());
+
+    // aplicar estilo header (fila 0)
+    for (int col = 0; col < headers.length; col++) {
+      final cell = sheet.cell(
+        xls.CellIndex.indexByColumnRow(columnIndex: col, rowIndex: 0),
+      );
+      cell.cellStyle = headerStyle;
+    }
+
+    // 2) fila de datos principal
+    final dataRow = [
+      txt(widget.originPort),
+      txt(widget.destinationPort),
+      txt(widget.distance.toStringAsFixed(0)),
+      txt(inc.code),
+      txt(inc.name),
+      txt(inc.costBreakdown.freight.toStringAsFixed(0)),
+      txt(inc.costBreakdown.insurance.toStringAsFixed(0)),
+      txt(inc.costBreakdown.customsClearance.toStringAsFixed(0)),
+      txt(inc.costBreakdown.portHandling.toStringAsFixed(0)),
+      txt(inc.costBreakdown.documentation.toStringAsFixed(0)),
+      txt(inc.costBreakdown.total.toStringAsFixed(0)),
+    ];
+
+    sheet.appendRow(dataRow);
+
+    // aplicar estilo a fila 1
+    for (int col = 0; col < dataRow.length; col++) {
+      final cell = sheet.cell(
+        xls.CellIndex.indexByColumnRow(columnIndex: col, rowIndex: 1),
+      );
+      if (col >= 5) {
+        cell.cellStyle = moneyStyle;
+      } else {
+        cell.cellStyle = bodyStyle;
+      }
+    }
+
+    // 3) sección de alternativas
+    if (_calculationResult!.alternatives.isNotEmpty) {
+      // fila vacía
+      sheet.appendRow([txt('')]);
+
+      // título de la sección
+      final titleRowIndex = sheet.maxRows;
+      sheet.appendRow([txt('Alternativas recomendadas')]);
+      final titleCell = sheet.cell(
+        xls.CellIndex.indexByColumnRow(columnIndex: 0, rowIndex: titleRowIndex),
+      );
+      titleCell.cellStyle = xls.CellStyle(bold: true);
+
+      // encabezados de alternativas
+      final altHeaderIndex = sheet.maxRows;
+      final altHeaders = [
+        'Código',
+        'Nombre',
+        'Score (%)',
+        'Total (USD)',
+      ];
+      sheet.appendRow(altHeaders.map((h) => txt(h)).toList());
+      for (int col = 0; col < altHeaders.length; col++) {
+        final cell = sheet.cell(
+          xls.CellIndex.indexByColumnRow(columnIndex: col, rowIndex: altHeaderIndex),
+        );
+        cell.cellStyle = headerStyle;
+      }
+
+      // filas de alternativas
+      for (final alt in _calculationResult!.alternatives) {
+        final r = [
+          txt(alt.code),
+          txt(alt.name),
+          txt(alt.recommendationScore.toStringAsFixed(0)),
+          txt(alt.costBreakdown.total.toStringAsFixed(0)),
+        ];
+        sheet.appendRow(r);
+
+        final currentRow = sheet.maxRows - 1;
+        for (int col = 0; col < r.length; col++) {
+          final cell = sheet.cell(
+            xls.CellIndex.indexByColumnRow(columnIndex: col, rowIndex: currentRow),
+          );
+          if (col >= 2) {
+            cell.cellStyle = moneyStyle;
+          } else {
+            cell.cellStyle = bodyStyle;
+          }
+        }
+      }
+    }
+
+    // exportar
+    final bytes = excel.encode()!;
+    final uint8 = Uint8List.fromList(bytes);
+
+    await Printing.sharePdf(
+      bytes: uint8,
+      filename: 'reporte_incoterm.xlsx',
+    );
+  }
+
+
+
 
   @override
   void dispose() {

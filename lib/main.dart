@@ -55,6 +55,7 @@ class MushroomApp extends StatelessWidget {
         ChangeNotifierProvider(
           create: (_) => RouteProvider(RouteService(), PortService()),
         ),
+
       ],
       child: Consumer<ThemeProvider>(
         builder: (context, themeProvider, child) {

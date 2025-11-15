@@ -6,8 +6,7 @@ class AppConstants {
   static const String appDescription = 'Maritime Route Management';
 
   // API Configuration - corresponds to Angular's environment.ts
-
-  static const String baseUrl = 'http://192.168.18.13:2020/api';
+  static const String baseUrl = 'http://192.168.18.10:2020/api';
   static const String authEndpoint = '/authentication';
   static const String routesEndpoint = '/routes';
   static const String portsEndpoint = '/ports';
@@ -45,6 +44,7 @@ class AppRoutes {
   static const String shipmentReports = '/shipment-reports';
   static const String routeHistory = '/route-history';
   static const String nearbyPorts = '/nearby-ports';
+  static const String settings = '/settings';
 }
 
 /// User roles matching Angular's role system

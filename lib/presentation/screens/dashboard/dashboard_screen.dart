@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/route_provider.dart';
 import '../../widgets/common/custom_drawer.dart';
 import '../../widgets/dashboard/dashboard_header.dart';
 import '../../widgets/dashboard/map_preview_widget.dart';
+import '../reports/shipment_reports_screen.dart';
 import '../routes/port_selector_screen.dart';
 import '../routes/quick_route_screen.dart';
 
@@ -173,17 +175,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 ),
                 const SizedBox(height: 12),
                 _buildQuickAccessCard(
-                  'Informes',
+                  'Reportes',
                   'Consulta reportes de envíos',
                   Icons.description,
                   Colors.orange,
-                  () {
-                    // TODO: Navegar a informes
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                        content: Text('Función disponible próximamente'),
-                      ),
-                    );
+                      () {
+                    context.push('/shipment-reports');
                   },
                 ),
                 const SizedBox(height: 12),
@@ -193,12 +190,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   Icons.settings,
                   Colors.purple,
                   () {
-                    // TODO: Navegar a configuración
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                        content: Text('Función disponible próximamente'),
-                      ),
-                    );
+                    context.push('/settings');
                   },
                 ),
               ],

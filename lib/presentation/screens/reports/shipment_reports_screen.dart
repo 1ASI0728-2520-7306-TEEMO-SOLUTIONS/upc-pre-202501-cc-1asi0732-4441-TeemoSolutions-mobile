@@ -2,7 +2,8 @@ import 'package:flutter/material.dart';
 import '../../../core/constants/app_constants.dart';
 import '../../widgets/common/custom_drawer.dart';
 import '../../../data/services/report_local_store.dart';
-
+import 'package:pdf/widgets.dart' as pw;
+import 'package:printing/printing.dart';
 /// Shipment reports screen matching Angular's ShipmentReportsComponent
 class ShipmentReportsScreen extends StatefulWidget {
   const ShipmentReportsScreen({super.key});
@@ -28,11 +29,11 @@ class _ShipmentReportsScreenState extends State<ShipmentReportsScreen> {
       appBar: AppBar(
         title: const Text('Shipment Reports'),
         actions: [
-          IconButton(
-            icon: const Icon(Icons.download),
-            onPressed: _downloadReports,
-            tooltip: 'Download Reports',
-          ),
+          // IconButton(
+          //   icon: const Icon(Icons.download),
+          //   onPressed: _downloadReports,
+          //   tooltip: 'Download Reports',
+          // ),
           IconButton(
             icon: const Icon(Icons.refresh),
             onPressed: _refreshReports,
@@ -387,12 +388,58 @@ class _ShipmentReportsScreenState extends State<ShipmentReportsScreen> {
     return '\$' + value.toStringAsFixed(0);
   }
 
-  void _downloadSingleReport(Map<String, dynamic> report) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('Downloading report ${report['shipmentId']}...'),
-        duration: const Duration(seconds: 2),
+
+
+  void _downloadSingleReport(Map<String, dynamic> report) async {
+    // construimos el pdf
+    final pdf = pw.Document();
+
+    pdf.addPage(
+      pw.Page(
+        build: (pw.Context context) {
+          return pw.Column(
+            crossAxisAlignment: pw.CrossAxisAlignment.start,
+            children: [
+              pw.Text(
+                'Reporte de Envío',
+                style: pw.TextStyle(fontSize: 20, fontWeight: pw.FontWeight.bold),
+              ),
+              pw.SizedBox(height: 12),
+              pw.Text('ID de envío: ${report['shipmentId'] ?? '-'}'),
+              pw.Text('Ruta: ${report['route'] ?? '-'}'),
+              pw.Text('Origen: ${report['origin'] ?? '-'}'),
+              pw.Text('Destino: ${report['destination'] ?? '-'}'),
+              pw.Text('Estado: ${report['status'] ?? '-'}'),
+              pw.Text('ETA: ${report['eta'] ?? '-'}'),
+              pw.Text('Carga: ${report['cargo'] ?? '-'}'),
+              pw.SizedBox(height: 12),
+
+              // Si viene de IncotermCalculator
+              if ((report['recommended'] ?? const {}) is Map &&
+                  (report['recommended']['code'] ?? '') != '') ...[
+                pw.Divider(),
+                pw.Text(
+                  'Incoterm recomendado',
+                  style: pw.TextStyle(fontWeight: pw.FontWeight.bold),
+                ),
+                pw.SizedBox(height: 6),
+                pw.Text('Código: ${report['recommended']['code']}'),
+                pw.Text('Nombre: ${report['recommended']['name'] ?? ''}'),
+                pw.Text(
+                  'Costo total: ${_formatMoney(((report['recommended']['total']) ?? 0).toDouble())}',
+                ),
+              ],
+            ],
+          );
+        },
       ),
     );
+
+    // abrir el diálogo de impresión/descarga
+    await Printing.layoutPdf(
+      onLayout: (format) async => pdf.save(),
+      name: 'reporte_${report['shipmentId'] ?? 'envio'}.pdf',
+    );
   }
+
 }
