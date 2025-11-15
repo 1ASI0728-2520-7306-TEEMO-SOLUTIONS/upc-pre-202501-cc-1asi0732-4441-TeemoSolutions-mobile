@@ -1,6 +1,6 @@
 # mushroom
 
-Aplicación Flutter.
+Aplicación Flutter
 
 ## Ruta marítima: máscara de tierra (opcional)
 
