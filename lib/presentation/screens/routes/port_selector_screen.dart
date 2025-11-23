@@ -367,8 +367,8 @@ class _PortSelectorScreenState extends State<PortSelectorScreen> {
       final intermediatePortNames = _selectedIntermediatePorts.map((port) => port.name).toList();
       
       final routeData = await _routeService.calculateOptimalRoute(
-        _selectedOriginPort!.name,
-        _selectedDestinationPort!.name,
+        _selectedOriginPort!.id,
+        _selectedDestinationPort!.id,
         intermediatePortNames,
       );
 
