@@ -1,12 +1,11 @@
 // lib/data/services/route_history_service.dart
 import 'dart:convert';
-import 'package:flutter/foundation.dart'; // para debugPrint
-
 import 'package:http/http.dart' as http;
 
 import '../../core/constants/app_constants.dart';
 import '../models/route_history_model.dart';
 import 'auth_service.dart';
+import 'package:flutter/foundation.dart'; // para debugPrint
 
 class RouteHistoryService {
   final AuthService _authService;

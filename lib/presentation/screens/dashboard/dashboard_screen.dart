@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 import '../../../data/models/route_history_model.dart';
 import '../../../data/services/auth_service.dart';
@@ -10,8 +9,6 @@ import '../../providers/route_provider.dart';
 import '../../widgets/common/custom_drawer.dart';
 import '../../widgets/dashboard/dashboard_header.dart';
 import '../../widgets/dashboard/map_preview_widget.dart';
-import '../reports/route_history_screen.dart';
-import '../reports/shipment_reports_screen.dart';
 import '../routes/port_selector_screen.dart';
 import '../routes/quick_route_screen.dart';
 
@@ -26,7 +23,27 @@ class DashboardScreen extends StatefulWidget {
 }
 
 class _DashboardScreenState extends State<DashboardScreen> {
+
   Future<List<RouteHistoryItem>>? _recentRoutesFuture;
+
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      context.read<RouteProvider>().loadRoutes();
+
+      final auth = context.read<AuthProvider>();
+      final user = auth.currentUser;
+      debugPrint('👉 [Dashboard] currentUser=${user?.id}');
+
+      if (user != null) {
+        context.read<RouteHistoryProvider>().loadRecentForUser(user.id);
+      } else {
+        debugPrint('⚠️ [Dashboard] currentUser es null, no se puede cargar historial');
+      }
+    });
+  }
 
   Future<void> _openPortSelector() async {
     final auth = context.read<AuthProvider>();
@@ -46,24 +63,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
     }
   }
 
-
-  @override
-  void initState() {
-    super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      // rutas "planificadas" locales
-      context.read<RouteProvider>().loadRoutes();
-
-      // historial del backend
-      final auth = context.read<AuthProvider>();
-      final user = auth.currentUser;
-      if (user != null) {
-        context
-            .read<RouteHistoryProvider>()
-            .loadRecentForUser(user.id); // mismo id que en Angular
-      }
-    });
-  }
 
 
   @override
@@ -198,7 +197,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   'Determina los mejores términos comerciales',
                   Icons.calculate,
                   const Color(0xFF0A6CBC),
-                  () {
+                      () {
                     Navigator.of(context).push(
                       MaterialPageRoute(
                         builder: (context) => const PortSelectorScreen(),
@@ -208,12 +207,17 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 ),
                 const SizedBox(height: 12),
                 _buildQuickAccessCard(
-                  'Reportes',
+                  'Informes',
                   'Consulta reportes de envíos',
                   Icons.description,
                   Colors.orange,
                       () {
-                    context.push('/shipment-reports');
+                    // TODO: Navegar a informes
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text('Función disponible próximamente'),
+                      ),
+                    );
                   },
                 ),
                 const SizedBox(height: 12),
@@ -222,8 +226,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   'Ajusta preferencias del sistema',
                   Icons.settings,
                   Colors.purple,
-                  () {
-                    context.push('/settings');
+                      () {
+                    // TODO: Navegar a configuración
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text('Función disponible próximamente'),
+                      ),
+                    );
                   },
                 ),
               ],
@@ -235,12 +244,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   Widget _buildQuickAccessCard(
-    String title,
-    String description,
-    IconData icon,
-    Color color,
-    VoidCallback onTap,
-  ) {
+      String title,
+      String description,
+      IconData icon,
+      Color color,
+      VoidCallback onTap,
+      ) {
     return InkWell(
       onTap: onTap,
       borderRadius: BorderRadius.circular(8),
@@ -418,11 +427,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                     ),
                     TextButton(
                       onPressed: () {
-                        Navigator.of(context).push(
-                          MaterialPageRoute(
-                            builder: (context) => const RouteHistoryScreen(),
-                          ),
-                        );
+                        // navegar a historial completo si quieres
                       },
                       child: const Text('Ver todas'),
                     ),
@@ -466,6 +471,49 @@ class _DashboardScreenState extends State<DashboardScreen> {
           ),
         );
       },
+    );
+  }
+
+
+
+
+
+
+
+  void _showHelpDialog() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Ayuda - Dashboard Marítimo'),
+        content: const SingleChildScrollView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                'Funciones principales:',
+                style: TextStyle(fontWeight: FontWeight.bold),
+              ),
+              SizedBox(height: 8),
+              Text('• Seleccionar Puertos: Herramienta completa para seleccionar puertos de origen, destino e intermedios, con cálculo de Incoterms.'),
+              SizedBox(height: 4),
+              Text('• Ruta Rápida: Creación rápida de rutas básicas.'),
+              SizedBox(height: 4),
+              Text('• Calcular Incoterms: Determina los mejores términos comerciales para tu carga.'),
+              SizedBox(height: 4),
+              Text('• Estadísticas: Ve el resumen de tus rutas por estado.'),
+              SizedBox(height: 4),
+              Text('• Rutas Recientes: Acceso rápido a las últimas rutas creadas.'),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Entendido'),
+          ),
+        ],
+      ),
     );
   }
 
@@ -521,7 +569,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       case 'SUCCESS':
         return Icons.check_circle;
       case 'NO_VIABLE_ROUTE':
-        return Icons.warning_amber_rounded;
+        return Icons.warning_amber;
       case 'CANCELLED':
         return Icons.cancel;
       default:
@@ -529,13 +577,27 @@ class _DashboardScreenState extends State<DashboardScreen> {
     }
   }
 
+  String _getHistoryStatusText(String status) {
+    switch (status) {
+      case 'SUCCESS':
+        return 'Completada';
+      case 'NO_VIABLE_ROUTE':
+        return 'No viable';
+      case 'CANCELLED':
+        return 'Cancelada';
+      default:
+        return 'Desconocido';
+    }
+  }
+
   String _formatHistorySubtitle(RouteHistoryItem item) {
-    final date = item.computedAt;
+    final computed = item.computedAt;
+
     final dateStr =
-        '${date.day.toString().padLeft(2, '0')}/'
-        '${date.month.toString().padLeft(2, '0')} '
-        '${date.hour.toString().padLeft(2, '0')}:'
-        '${date.minute.toString().padLeft(2, '0')}';
+        '${computed.day.toString().padLeft(2, '0')}/'
+        '${computed.month.toString().padLeft(2, '0')} '
+        '${computed.hour.toString().padLeft(2, '0')}:'
+        '${computed.minute.toString().padLeft(2, '0')}';
 
     final distanceStr = item.totalDistance != null
         ? '${item.totalDistance!.toStringAsFixed(1)} nm'
@@ -546,42 +608,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
 
 
-  void _showHelpDialog() {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Ayuda - Dashboard Marítimo'),
-        content: const SingleChildScrollView(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(
-                'Funciones principales:',
-                style: TextStyle(fontWeight: FontWeight.bold),
-              ),
-              SizedBox(height: 8),
-              Text('• Seleccionar Puertos: Herramienta completa para seleccionar puertos de origen, destino e intermedios, con cálculo de Incoterms.'),
-              SizedBox(height: 4),
-              Text('• Ruta Rápida: Creación rápida de rutas básicas.'),
-              SizedBox(height: 4),
-              Text('• Calcular Incoterms: Determina los mejores términos comerciales para tu carga.'),
-              SizedBox(height: 4),
-              Text('• Estadísticas: Ve el resumen de tus rutas por estado.'),
-              SizedBox(height: 4),
-              Text('• Rutas Recientes: Acceso rápido a las últimas rutas creadas.'),
-            ],
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: const Text('Entendido'),
-          ),
-        ],
-      ),
-    );
-  }
+
 
   Color _getStatusColor(String status) {
     switch (status) {
@@ -627,11 +654,4 @@ class _DashboardScreenState extends State<DashboardScreen> {
         return 'Desconocido';
     }
   }
-
-
-
-
-
-
-
 }

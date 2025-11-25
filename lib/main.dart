@@ -55,12 +55,15 @@ class MushroomApp extends StatelessWidget {
         
         // Route Provider - corresponds to Angular's RouteService
         ChangeNotifierProvider(
-          create: (_) => RouteProvider(RouteService(), PortService()),
+          create: (_) => RouteHistoryProvider(
+            RouteHistoryService(AuthService()),
+            PortService(),
+          ),
         ),
 
         ChangeNotifierProvider(
-          create: (_) => RouteHistoryProvider(
-            RouteHistoryService(AuthService()),
+          create: (_) => RouteProvider(
+            RouteService(),
             PortService(),
           ),
         ),
