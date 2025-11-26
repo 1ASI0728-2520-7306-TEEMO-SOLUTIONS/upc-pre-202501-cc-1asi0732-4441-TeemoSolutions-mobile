@@ -11,6 +11,8 @@ import '../../widgets/dashboard/dashboard_header.dart';
 import '../../widgets/dashboard/map_preview_widget.dart';
 import '../routes/port_selector_screen.dart';
 import '../routes/quick_route_screen.dart';
+import 'package:go_router/go_router.dart';
+
 
 import 'package:provider/provider.dart';
 
@@ -207,17 +209,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 ),
                 const SizedBox(height: 12),
                 _buildQuickAccessCard(
-                  'Informes',
+                  'Reportes',
                   'Consulta reportes de envíos',
                   Icons.description,
                   Colors.orange,
                       () {
-                    // TODO: Navegar a informes
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                        content: Text('Función disponible próximamente'),
-                      ),
-                    );
+                        context.push('/shipment-reports');
                   },
                 ),
                 const SizedBox(height: 12),
@@ -227,12 +224,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   Icons.settings,
                   Colors.purple,
                       () {
-                    // TODO: Navegar a configuración
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                        content: Text('Función disponible próximamente'),
-                      ),
-                    );
+                        context.push('/settings');
                   },
                 ),
               ],
@@ -408,6 +400,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     return Consumer<RouteHistoryProvider>(
       builder: (context, historyProvider, child) {
         final recentRoutes = historyProvider.recent;
+        final visibleRoutes = recentRoutes.take(3).toList(); // 👈 solo 3
 
         return Card(
           child: Padding(
@@ -427,7 +420,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                     ),
                     TextButton(
                       onPressed: () {
-                        // navegar a historial completo si quieres
+                        context.push('/route-history'); // 👈 ver todas
                       },
                       child: const Text('Ver todas'),
                     ),
@@ -437,10 +430,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 if (historyProvider.isLoading)
                   const Center(child: CircularProgressIndicator())
                 else if (recentRoutes.isEmpty)
-                // ... tu empty state anterior
                   const Text('No hay rutas recientes')
                 else
-                  ...recentRoutes.map((item) {
+                  ...visibleRoutes.map((item) {        // 👈 aquí usamos SOLO 3
                     final origin =
                     historyProvider.resolvePortName(item.originPortId);
                     final dest =
@@ -452,7 +444,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
                     final dt = item.computedAt.toLocal();
                     final timeStr =
-                        '${dt.day.toString().padLeft(2, '0')}/${dt.month.toString().padLeft(2, '0')} ${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}';
+                        '${dt.day.toString().padLeft(2, '0')}/${dt.month.toString().padLeft(2, '0')} '
+                        '${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}';
 
                     return Card(
                       margin: const EdgeInsets.only(bottom: 8),
@@ -473,6 +466,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       },
     );
   }
+
 
 
 

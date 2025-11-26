@@ -27,10 +27,11 @@ class RouteHistoryService {
     final uri = Uri.parse('$_baseUrl/users/$userId/route-history').replace(
       queryParameters: {
         'page': '0',
-        'size': '3',
+        'size': '1000', // obtener todas
         'archived': 'false',
       },
     );
+
 
     debugPrint('👉 [RouteHistoryService] GET $uri');
     debugPrint('👉 [RouteHistoryService] headers=$headers');
