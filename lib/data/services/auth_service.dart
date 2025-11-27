@@ -8,12 +8,21 @@ import '../models/user_model.dart';
 
 /// Authentication service matching Angular's AuthService functionality
 class AuthService {
+
   final String _baseUrl = AppConstants.baseUrl + AppConstants.authEndpoint;
   final FlutterSecureStorage _secureStorage = const FlutterSecureStorage();
   
   /// Login request model matching Angular's LoginRequest interface
   static const String _tokenKey = AppConstants.tokenKey;
   static const String _userKey = AppConstants.userKey;
+
+  Future<Map<String, String>> getAuthHeaders() async {
+    final token = await getToken();
+    return {
+      'Content-Type': 'application/json',
+      if (token != null && token.isNotEmpty) 'Authorization': 'Bearer $token',
+    };
+  }
 
   /// Sign in user - corresponds to Angular's login method
   Future<UserModel> signIn({

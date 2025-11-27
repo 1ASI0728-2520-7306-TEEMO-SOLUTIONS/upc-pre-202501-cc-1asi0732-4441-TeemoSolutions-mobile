@@ -1,23 +1,33 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
+
 import '../../core/constants/app_constants.dart';
 import '../models/route_model.dart';
+import '../services/auth_service.dart';
 
 /// Route service for API communication
 /// Corresponds to Angular's RouteService
 class RouteService {
   final String _baseUrl = AppConstants.baseUrl + AppConstants.routesEndpoint;
 
+  // Usamos AuthService para obtener el token y los headers
+  final AuthService _authService = AuthService();
+
   /// Get all routes
   Future<List<RouteModel>> getAllRoutes() async {
     try {
-      final response = await http.get(Uri.parse(_baseUrl));
+      final headers = await _authService.getAuthHeaders();
+
+      final response = await http.get(
+        Uri.parse(_baseUrl),
+        headers: headers,
+      );
 
       if (response.statusCode == 200) {
         final List<dynamic> data = jsonDecode(response.body);
         return data.map((json) => RouteModel.fromJson(json)).toList();
       } else {
-        throw Exception('Failed to load routes');
+        throw Exception('Failed to load routes (status: ${response.statusCode})');
       }
     } catch (e) {
       throw Exception('Network error: $e');
@@ -27,13 +37,18 @@ class RouteService {
   /// Get route by ID
   Future<RouteModel> getRouteById(int id) async {
     try {
-      final response = await http.get(Uri.parse('$_baseUrl/$id'));
+      final headers = await _authService.getAuthHeaders();
+
+      final response = await http.get(
+        Uri.parse('$_baseUrl/$id'),
+        headers: headers,
+      );
 
       if (response.statusCode == 200) {
         final Map<String, dynamic> data = jsonDecode(response.body);
         return RouteModel.fromJson(data);
       } else {
-        throw Exception('Failed to load route');
+        throw Exception('Failed to load route (status: ${response.statusCode})');
       }
     } catch (e) {
       throw Exception('Network error: $e');
@@ -42,30 +57,33 @@ class RouteService {
 
   /// Calculate optimal route - Based on Angular RouteService
   Future<RouteCalculationResource> calculateOptimalRoute(
-      String originPort,
-      String destinationPort,
-      List<String> intermediatePorts,
+      String originPortId,
+      String destinationPortId,
+      List<String> intermediatePortIds,
       ) async {
     try {
       final qp = <String, String>{
-        'startPort': originPort,
-        'endPort': destinationPort,
-        if (intermediatePorts.isNotEmpty)
-          'intermediatePorts': intermediatePorts.join(','), // "A,B,C"
+        'startPortId': originPortId,
+        'endPortId': destinationPortId,
+        if (intermediatePortIds.isNotEmpty)
+          'intermediatePortIds': intermediatePortIds.join(','), // "1,2,3"
       };
 
       final url = Uri.parse('${AppConstants.baseUrl}/routes/calculate-optimal-route')
-          .replace(queryParameters: qp); // ✅ codifica espacios y tildes
+          .replace(queryParameters: qp);
+      print('URL calculate route: $url'); // 👈 DEBUG, mira esto en consola
+
+      final headers = await _authService.getAuthHeaders();
 
       final response = await http.post(
         url,
-        headers: {'Content-Type': 'application/json'},
-        body: '', // si tu API no espera body
+        headers: headers,
+        body: '' // si tu API no espera body
       );
 
       if (response.statusCode == 200) {
         final Map<String, dynamic> data = jsonDecode(response.body);
-        return RouteCalculationResource.fromJson(data); // ✅ ahora sí pobla 'coordinates'
+        return RouteCalculationResource.fromJson(data);
       } else {
         throw Exception('Failed to calculate route: ${response.statusCode}');
       }
@@ -73,7 +91,6 @@ class RouteService {
       throw Exception('Network error calculating route: $e');
     }
   }
-
 
   /// Create new route
   Future<RouteModel> createRoute({
@@ -94,11 +111,11 @@ class RouteService {
         'vessels': vessels,
       };
 
+      final headers = await _authService.getAuthHeaders();
+
       final response = await http.post(
         Uri.parse(_baseUrl),
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: headers,
         body: jsonEncode(requestBody),
       );
 
@@ -116,11 +133,11 @@ class RouteService {
   /// Update route status
   Future<RouteModel> updateRouteStatus(int routeId, String status) async {
     try {
+      final headers = await _authService.getAuthHeaders();
+
       final response = await http.patch(
         Uri.parse('$_baseUrl/$routeId/status'),
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: headers,
         body: jsonEncode({'status': status}),
       );
 
@@ -128,8 +145,7 @@ class RouteService {
         final Map<String, dynamic> data = jsonDecode(response.body);
         return RouteModel.fromJson(data);
       } else {
-        throw Exception(
-            'Failed to update route status: ${response.statusCode}');
+        throw Exception('Failed to update route status: ${response.statusCode}');
       }
     } catch (e) {
       throw Exception('Network error updating route: $e');
@@ -139,8 +155,11 @@ class RouteService {
   /// Delete route
   Future<void> deleteRoute(int routeId) async {
     try {
+      final headers = await _authService.getAuthHeaders();
+
       final response = await http.delete(
         Uri.parse('$_baseUrl/$routeId'),
+        headers: headers,
       );
 
       if (response.statusCode != 204) {
@@ -154,8 +173,11 @@ class RouteService {
   /// Get route history
   Future<List<RouteModel>> getRouteHistory() async {
     try {
+      final headers = await _authService.getAuthHeaders();
+
       final response = await http.get(
         Uri.parse('$_baseUrl/history'),
+        headers: headers,
       );
 
       if (response.statusCode == 200) {
@@ -172,8 +194,11 @@ class RouteService {
   /// Get active routes
   Future<List<RouteModel>> getActiveRoutes() async {
     try {
+      final headers = await _authService.getAuthHeaders();
+
       final response = await http.get(
         Uri.parse('$_baseUrl/active'),
+        headers: headers,
       );
 
       if (response.statusCode == 200) {
@@ -187,5 +212,8 @@ class RouteService {
     }
   }
 
-  Future<void> createRouteReport(Map<String, Object?> routeData) async {}
+  Future<void> createRouteReport(Map<String, Object?> routeData) async {
+    // cuando implementes esto, igual usas:
+    // final headers = await _authService.getAuthHeaders();
+  }
 }

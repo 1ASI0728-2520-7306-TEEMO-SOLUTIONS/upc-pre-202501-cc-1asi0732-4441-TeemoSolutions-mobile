@@ -2,8 +2,12 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 import '../../core/constants/app_constants.dart';
 import '../models/incoterm_model.dart';
+import 'auth_service.dart';
 
 class IncotermService {
+  // Usamos AuthService para obtener el token
+  final AuthService _authService = AuthService();
+
   Future<IncotermCalculationResult> calculateIncoterms(
     IncotermFormData formData,
     String originPort,
@@ -20,14 +24,18 @@ class IncotermService {
         'distance': distance,
       };
 
+      final headers = await _authService.getAuthHeaders();
+
       final response = await http.post(
         uri,
-        headers: {'Content-Type': 'application/json'},
+        headers: headers,
         body: jsonEncode(payload),
       );
 
       if (response.statusCode != 200) {
-        throw Exception('HTTP ${response.statusCode}: ${response.reasonPhrase}');
+        throw Exception(
+          'HTTP ${response.statusCode}: ${response.reasonPhrase}',
+        );
       }
 
       final Map<String, dynamic> raw = jsonDecode(response.body);
