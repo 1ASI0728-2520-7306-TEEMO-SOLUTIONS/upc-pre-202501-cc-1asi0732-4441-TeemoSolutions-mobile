@@ -41,19 +41,25 @@ class AuthService {
 
       if (response.statusCode == 200) {
         final Map<String, dynamic> data = jsonDecode(response.body);
-        
-        // Create user model from response
+
+        // Parse roles si vienen; si no, inferir desde 'role'
+        final List<String> roles = (data['roles'] is List)
+            ? (data['roles'] as List).whereType<String>().toList()
+            : <String>[];
+        final primaryRole = roles.isNotEmpty
+            ? roles.first
+            : (data['role'] ?? 'ROLE_USER');
+
         final user = UserModel(
-          id: data['id'],
-          username: data['username'],
-          name: data['username'], // Use username as name if not provided
-          role: 'ROLE_USER', // Default role
+          id: data['id']?.toString() ?? '',
+          username: data['username'] ?? '',
+          name: data['username'] ?? '',
+          role: primaryRole,
+          roles: roles.isNotEmpty ? roles : [primaryRole],
           token: data['token'],
         );
 
-        // Store token and user data securely
         await _storeAuthData(user);
-        
         return user;
       } else {
         throw _handleHttpError(response);
@@ -145,7 +151,7 @@ class AuthService {
       case 401:
         return Exception('Invalid credentials');
       case 403:
-        return Exception('Access denied');
+        return Exception('Access denied / Forbidden (403): revisa permisos o rol');
       case 409:
         return Exception('Username already exists');
       case 500:

@@ -396,9 +396,9 @@ Widget _buildCreateButton() {
     try {
       // Calcular la ruta óptima
       final routeData = await _routeService.calculateOptimalRoute(
-        _originPort!.name,
-        _destinationPort!.name,
-        _intermediatePorts.map((p) => p.name).toList(),
+        _originPort!.id,
+        _destinationPort!.id,
+        _intermediatePorts.map((p) => p.id).toList(),
       );
 
     // Construir la polyline para la animación a partir de las coordenadas devueltas

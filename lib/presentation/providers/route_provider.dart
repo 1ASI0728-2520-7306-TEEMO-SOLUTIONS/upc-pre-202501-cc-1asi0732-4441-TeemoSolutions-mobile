@@ -113,9 +113,9 @@ class RouteProvider extends ChangeNotifier {
 
   /// Calculate optimal route
   Future<RouteCalculationResource?> calculateOptimalRoute(
-    String originPort,
-    String destinationPort,
-    List<String> intermediatePorts,
+    String originPortId,
+    String destinationPortId,
+    List<String> intermediatePortIds,
   ) async {
     _isLoading = true;
     _errorMessage = null;
@@ -123,9 +123,9 @@ class RouteProvider extends ChangeNotifier {
 
     try {
       final calculation = await _routeService.calculateOptimalRoute(
-        originPort,
-        destinationPort,
-        intermediatePorts,
+        originPortId,
+        destinationPortId,
+        intermediatePortIds,
       );
       return calculation;
     } catch (e) {

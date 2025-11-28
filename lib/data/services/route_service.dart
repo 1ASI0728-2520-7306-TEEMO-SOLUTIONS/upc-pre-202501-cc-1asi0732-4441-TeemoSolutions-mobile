@@ -62,30 +62,82 @@ class RouteService {
       List<String> intermediatePortIds,
       ) async {
     try {
+      // Solo los parámetros requeridos según Swagger (startPortId, endPortId)
+      // Si más adelante el backend admite intermedios, se envían aparte.
       final qp = <String, String>{
         'startPortId': originPortId,
         'endPortId': destinationPortId,
-        if (intermediatePortIds.isNotEmpty)
-          'intermediatePortIds': intermediatePortIds.join(','), // "1,2,3"
       };
 
-      final url = Uri.parse('${AppConstants.baseUrl}/routes/calculate-optimal-route')
+      // Usar _baseUrl para consistencia y permitir cambio centralizado
+      final url = Uri.parse('$_baseUrl/calculate-optimal-route')
           .replace(queryParameters: qp);
-      print('URL calculate route: $url'); // 👈 DEBUG, mira esto en consola
+      print('[RouteService] URL calculate route => $url');
 
       final headers = await _authService.getAuthHeaders();
 
-      final response = await http.post(
-        url,
-        headers: headers,
-        body: '' // si tu API no espera body
-      );
+      // Reducimos token para logging seguro
+      final tokenPreview = headers['Authorization'] != null
+          ? headers['Authorization']!.substring(0, headers['Authorization']!.length.clamp(0, 20)) + '...'
+          : 'NO_TOKEN';
+      print('[RouteService] Auth header preview => $tokenPreview');
+
+      // Añadimos Accept para evitar negociaciones inesperadas.
+      final effectiveHeaders = {
+        ...headers,
+        'Accept': 'application/json',
+      };
+
+      http.Response response = await http.post(url, headers: effectiveHeaders);
+      print('[RouteService] POST status => ${response.statusCode}');
+      if (response.statusCode != 200) {
+        print('[RouteService] POST body => ${response.body}');
+      }
+
+      // Fallback: si 404 o 405, intentar GET (por si la doc o backend difieren)
+      if (response.statusCode == 404 || response.statusCode == 405) {
+        print('[RouteService] Intentando fallback GET para calculate-optimal-route');
+        final getResp = await http.get(url, headers: effectiveHeaders);
+        print('[RouteService] GET status => ${getResp.statusCode}');
+        if (getResp.statusCode == 200) {
+          response = getResp; // usamos esta como buena
+        } else {
+          print('[RouteService] GET body => ${getResp.body}');
+        }
+      }
 
       if (response.statusCode == 200) {
         final Map<String, dynamic> data = jsonDecode(response.body);
         return RouteCalculationResource.fromJson(data);
-      } else {
-        throw Exception('Failed to calculate route: ${response.statusCode}');
+      }
+
+      // Intentar parsear warnings del cuerpo aunque sea error
+      String extra = '';
+      try {
+        final bodyJson = jsonDecode(response.body);
+        if (bodyJson is Map && bodyJson['warnings'] is List) {
+          final warnings = (bodyJson['warnings'] as List).whereType<String>().toList();
+          if (warnings.isNotEmpty) {
+            extra = ' Warnings: ' + warnings.join(' | ');
+          }
+        }
+      } catch (_) {
+        // Ignorar parseo fallido
+      }
+
+      switch (response.statusCode) {
+        case 401:
+          throw Exception('Failed to calculate route: 401 (token inválido o ausente).' + extra);
+        case 403:
+          throw Exception('Failed to calculate route: 403 (permisos insuficientes).' + extra);
+        case 404:
+          throw Exception('Failed to calculate route: 404 (endpoint no encontrado). Revisa path /api/routes/calculate-optimal-route y método POST en backend.' + extra);
+        case 405:
+          throw Exception('Failed to calculate route: 405 (método no permitido). Backend podría requerir GET.' + extra);
+        case 500:
+          throw Exception('Failed to calculate route: 500 (error interno backend).' + extra + ' Ver logs del servidor para stacktrace.');
+        default:
+          throw Exception('Failed to calculate route: ${response.statusCode}.' + extra);
       }
     } catch (e) {
       throw Exception('Network error calculating route: $e');
@@ -215,5 +267,59 @@ class RouteService {
   Future<void> createRouteReport(Map<String, Object?> routeData) async {
     // cuando implementes esto, igual usas:
     // final headers = await _authService.getAuthHeaders();
+  }
+
+  /// Recalculate an existing route avoiding disabled ports
+  /// Swagger: POST /api/routes/{routeId}/recalculate
+  Future<RouteCalculationResource> recalculateRoute(String routeId) async {
+    try {
+      final headers = await _authService.getAuthHeaders();
+      final effectiveHeaders = {
+        ...headers,
+        'Accept': 'application/json',
+      };
+
+      final url = Uri.parse('$_baseUrl/$routeId/recalculate');
+      print('[RouteService] URL recalculate route => $url');
+
+      final response = await http.post(url, headers: effectiveHeaders);
+      print('[RouteService] RECALCULATE status => ${response.statusCode}');
+      if (response.statusCode != 200) {
+        print('[RouteService] RECALCULATE body => ${response.body}');
+      }
+
+      if (response.statusCode == 200) {
+        final Map<String, dynamic> data = jsonDecode(response.body);
+        return RouteCalculationResource.fromJson(data);
+      }
+
+      String extra = '';
+      try {
+        final bodyJson = jsonDecode(response.body);
+        if (bodyJson is Map && bodyJson['warnings'] is List) {
+          final warnings = (bodyJson['warnings'] as List).whereType<String>().toList();
+          if (warnings.isNotEmpty) {
+            extra = ' Warnings: ' + warnings.join(' | ');
+          }
+        }
+      } catch (_) {}
+
+      switch (response.statusCode) {
+        case 401:
+          throw Exception('Failed to recalculate route: 401 (token inválido o ausente).' + extra);
+        case 403:
+          throw Exception('Failed to recalculate route: 403 (permisos insuficientes).' + extra);
+        case 404:
+          throw Exception('Failed to recalculate route: 404 (ruta no encontrada / endpoint). Revisa path /api/routes/{routeId}/recalculate.' + extra);
+        case 405:
+          throw Exception('Failed to recalculate route: 405 (método no permitido). Backend podría requerir GET).' + extra);
+        case 500:
+          throw Exception('Failed to recalculate route: 500 (error interno backend).' + extra);
+        default:
+          throw Exception('Failed to recalculate route: ${response.statusCode}.' + extra);
+      }
+    } catch (e) {
+      throw Exception('Network error recalculating route: $e');
+    }
   }
 }

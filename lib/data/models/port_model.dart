@@ -8,6 +8,7 @@ class Port {
   final double longitude;
   final String country;
   final String code;
+  final bool disabled;
 
   Port({
     required this.id,
@@ -17,6 +18,7 @@ class Port {
     required this.longitude,
     required this.country,
     required this.code,
+    required this.disabled,
   });
 
   factory Port.fromJson(Map<String, dynamic> json) {
@@ -29,6 +31,7 @@ class Port {
       longitude: (coordinates['longitude'] ?? 0.0).toDouble(),
       country: json['country'] ?? '',
       code: json['code'] ?? '',
+      disabled: (json['disabled'] ?? false) == true,
     );
   }
 
@@ -43,6 +46,7 @@ class Port {
       },
       'country': country,
       'code': code,
+      'disabled': disabled,
     };
   }
 

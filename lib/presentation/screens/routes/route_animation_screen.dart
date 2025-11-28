@@ -67,6 +67,59 @@ class _RouteAnimationScreenState extends State<RouteAnimationScreen>
 
   bool get _hasRoute => widget.polyline.length >= 2;
 
+  List<Marker> _buildWaypointMarkers() {
+    final info = widget.routeInfo;
+    // Preferir coordinates de routeInfo si está disponible
+    if (info != null && info.coordinates.isNotEmpty) {
+      final coords = info.coordinates;
+      final markers = <Marker>[];
+      for (var i = 0; i < coords.length; i++) {
+        final c = coords[i];
+        final point = LatLng(c.latitude, c.longitude);
+        if (i == 0) {
+          markers.add(Marker(
+            point: point,
+            width: 40,
+            height: 40,
+            child: const Icon(Icons.place, color: Colors.green, size: 34),
+          ));
+        } else if (i == coords.length - 1) {
+          markers.add(Marker(
+            point: point,
+            width: 40,
+            height: 40,
+            child: const Icon(Icons.flag, color: Colors.red, size: 34),
+          ));
+        } else {
+          markers.add(Marker(
+            point: point,
+            width: 34,
+            height: 34,
+            child: const Icon(Icons.place, color: Colors.purple, size: 28),
+          ));
+        }
+      }
+      return markers;
+    }
+    // Fallback seguro: usar siempre inicio y fin de polyline
+    if (_hasRoute) {
+      final start = Marker(
+        point: widget.polyline.first,
+        width: 40,
+        height: 40,
+        child: const Icon(Icons.place, color: Colors.green, size: 34),
+      );
+      final end = Marker(
+        point: widget.polyline.last,
+        width: 40,
+        height: 40,
+        child: const Icon(Icons.flag, color: Colors.red, size: 34),
+      );
+      return [start, end];
+    }
+    return const <Marker>[];
+  }
+
   @override
   void initState() {
     super.initState();
@@ -272,6 +325,10 @@ class _RouteAnimationScreenState extends State<RouteAnimationScreen>
                       ),
                     ],
                   ),
+                // Marcadores estáticos (inicio / intermedios / destino) si hay ruta
+                // Waypoints: usar routeInfo.coordinates si viene; evita marcar cada vértice del polyline
+                if (hasRoute)
+                  MarkerLayer(markers: _buildWaypointMarkers()),
                 if (_boatPos != null)
                   MarkerLayer(
                     markers: [

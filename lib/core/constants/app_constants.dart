@@ -6,7 +6,9 @@ class AppConstants {
   static const String appDescription = 'Maritime Route Management';
 
   // API Configuration - corresponds to Angular's environment.ts
-  static const String baseUrl = 'http://10.172.201.204:2020/api';
+  // Actualizado a la IP LAN local reportada. Si tu backend corre en otro puerto,
+  // ajusta :8080 por el puerto correcto (por ejemplo :2020)
+  static const String baseUrl = 'http://192.168.18.13:8080/api';
   static const String authEndpoint = '/authentication';
   static const String routesEndpoint = '/routes';
   static const String portsEndpoint = '/ports';

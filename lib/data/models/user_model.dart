@@ -2,7 +2,8 @@ class UserModel {
   final String id;
   final String username;
   final String name;
-  final String role;
+  final String role; // rol principal (primer rol de la lista)
+  final List<String> roles; // lista completa de roles si viene del backend
   final String? token; // puede ser null
 
   UserModel({
@@ -10,6 +11,7 @@ class UserModel {
     required this.username,
     required this.name,
     required this.role,
+    required this.roles,
     this.token,
   });
 
@@ -31,12 +33,20 @@ class UserModel {
   }
 
   factory UserModel.fromJson(Map<String, dynamic> json) {
+    // El backend podría mandar 'roles' como lista o un único 'role'.
+    final List<String> parsedRoles = (json['roles'] is List)
+        ? (json['roles'] as List).whereType<String>().toList()
+        : <String>[];
+    final primaryRole = parsedRoles.isNotEmpty
+        ? parsedRoles.first
+        : (json['role'] ?? 'ROLE_USER');
     return UserModel(
       id: json['id'] ?? '',
       username: json['username'] ?? '',
       name: json['name'] ?? json['username'] ?? '',
-      role: json['role'] ?? 'ROLE_USER',
-      token: json['token'], // puede ser null
+      role: primaryRole,
+      roles: parsedRoles.isNotEmpty ? parsedRoles : [primaryRole],
+      token: json['token'],
     );
   }
 
@@ -46,6 +56,7 @@ class UserModel {
       'username': username,
       'name': name,
       'role': role,
+      'roles': roles,
       'token': token,
     };
   }

@@ -304,8 +304,8 @@ class _QuickRouteScreenState extends State<QuickRouteScreen> {
 
     try {
       final routeData = await _routeService.calculateOptimalRoute(
-        _originPort!.name,
-        _destinationPort!.name,
+        _originPort!.id,
+        _destinationPort!.id,
         const [], // rápida: sin intermedios
       );
 
@@ -323,6 +323,9 @@ class _QuickRouteScreenState extends State<QuickRouteScreen> {
             polyline: polyline,
             initialKnots: 20,
             followBoat: true,
+            routeInfo: routeData,
+            portNames: routeData.portNames,
+            totalNauticalMiles: routeData.totalDistance,
           ),
         ),
       );

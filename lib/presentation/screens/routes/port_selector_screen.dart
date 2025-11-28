@@ -190,6 +190,7 @@ class _PortSelectorScreenState extends State<PortSelectorScreen> {
   bool _showRouteVisualization = false;
   RouteCalculationResource? _routeData;
   bool _isCalculatingRoute = false;
+  bool _isTogglingPort = false;
 
   // Estado del panel IA · Ruta
   bool _aiLoading = false;
@@ -208,6 +209,29 @@ class _PortSelectorScreenState extends State<PortSelectorScreen> {
     super.initState();
     _loadPorts();
     LandMaskService.instance.ensureLoaded();
+  }
+
+  Future<void> _togglePortDisabled(Port port) async {
+    if (_isTogglingPort) return;
+    setState(() => _isTogglingPort = true);
+    try {
+      if (port.disabled) {
+        await _portService.enablePort(port.id);
+      } else {
+        await _portService.disablePort(port.id);
+      }
+      // Recargar lista de puertos
+      await _loadPorts();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(port.disabled ? 'Puerto habilitado' : 'Puerto deshabilitado')),
+      );
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('No se pudo cambiar estado del puerto: $e')),
+      );
+    } finally {
+      setState(() => _isTogglingPort = false);
+    }
   }
 
   List<ll.LatLng> _buildLatLngRoute(dynamic data) {
@@ -259,6 +283,7 @@ class _PortSelectorScreenState extends State<PortSelectorScreen> {
       final ports = await _portService.getAllPorts();
       setState(() {
         _allPorts = ports;
+        // Mantener todos los puertos visibles; se evita selección si está deshabilitado
         _filteredOriginPorts = [...ports];
         _filteredDestinationPorts = [...ports];
         _filteredIntermediatePorts = [...ports];
@@ -354,6 +379,39 @@ class _PortSelectorScreenState extends State<PortSelectorScreen> {
     return port == _selectedOriginPort || port == _selectedDestinationPort;
   }
 
+  // Construye marcadores para los waypoints (puertos) usando las coordenadas en orden.
+  List<Marker> _buildWaypointMarkers(RouteCalculationResource data) {
+    final coords = data.coordinates;
+    final markers = <Marker>[];
+    for (var i = 0; i < coords.length; i++) {
+      final c = coords[i];
+      final point = ll.LatLng(c.latitude, c.longitude);
+      if (i == 0) {
+        markers.add(Marker(
+          point: point,
+          width: 38,
+          height: 38,
+          child: const Icon(Icons.place, color: Colors.green, size: 32),
+        ));
+      } else if (i == coords.length - 1) {
+        markers.add(Marker(
+          point: point,
+          width: 38,
+          height: 38,
+          child: const Icon(Icons.flag, color: Colors.red, size: 32),
+        ));
+      } else {
+        markers.add(Marker(
+          point: point,
+          width: 32,
+          height: 32,
+          child: const Icon(Icons.place, color: Colors.purple, size: 26),
+        ));
+      }
+    }
+    return markers;
+  }
+
   Future<void> _visualizeRoute() async {
     if (_selectedOriginPort == null || _selectedDestinationPort == null) {
       return;
@@ -364,12 +422,12 @@ class _PortSelectorScreenState extends State<PortSelectorScreen> {
     });
 
     try {
-      final intermediatePortNames = _selectedIntermediatePorts.map((port) => port.name).toList();
-      
+      final intermediatePortIds = _selectedIntermediatePorts.map((port) => port.id).toList();
+
       final routeData = await _routeService.calculateOptimalRoute(
         _selectedOriginPort!.id,
         _selectedDestinationPort!.id,
-        intermediatePortNames,
+        intermediatePortIds,
       );
 
       setState(() {
@@ -695,30 +753,60 @@ class _PortSelectorScreenState extends State<PortSelectorScreen> {
   }
 
   Widget _buildPortSelectionSection() {
-    return Row(
-      children: [
-        Expanded(
-          child: _buildPortSelectionCard(
-            title: 'Puerto de Origen',
-            searchController: _originSearchController,
-            filteredPorts: _filteredOriginPorts,
-            selectedPort: _selectedOriginPort,
-            onSearch: _searchOriginPorts,
-            onPortSelected: _selectOriginPort,
-          ),
-        ),
-        const SizedBox(width: 16),
-        Expanded(
-          child: _buildPortSelectionCard(
-            title: 'Puerto de Destino',
-            searchController: _destinationSearchController,
-            filteredPorts: _filteredDestinationPorts,
-            selectedPort: _selectedDestinationPort,
-            onSearch: _searchDestinationPorts,
-            onPortSelected: _selectDestinationPort,
-          ),
-        ),
-      ],
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final isNarrow = constraints.maxWidth < 640;
+        if (isNarrow) {
+          // En pantallas estrechas, apilar verticalmente
+          return Column(
+            children: [
+              _buildPortSelectionCard(
+                title: 'Puerto de Origen',
+                searchController: _originSearchController,
+                filteredPorts: _filteredOriginPorts,
+                selectedPort: _selectedOriginPort,
+                onSearch: _searchOriginPorts,
+                onPortSelected: _selectOriginPort,
+              ),
+              const SizedBox(height: 16),
+              _buildPortSelectionCard(
+                title: 'Puerto de Destino',
+                searchController: _destinationSearchController,
+                filteredPorts: _filteredDestinationPorts,
+                selectedPort: _selectedDestinationPort,
+                onSearch: _searchDestinationPorts,
+                onPortSelected: _selectDestinationPort,
+              ),
+            ],
+          );
+        }
+        // En pantallas anchas, mantener dos columnas
+        return Row(
+          children: [
+            Expanded(
+              child: _buildPortSelectionCard(
+                title: 'Puerto de Origen',
+                searchController: _originSearchController,
+                filteredPorts: _filteredOriginPorts,
+                selectedPort: _selectedOriginPort,
+                onSearch: _searchOriginPorts,
+                onPortSelected: _selectOriginPort,
+              ),
+            ),
+            const SizedBox(width: 16),
+            Expanded(
+              child: _buildPortSelectionCard(
+                title: 'Puerto de Destino',
+                searchController: _destinationSearchController,
+                filteredPorts: _filteredDestinationPorts,
+                selectedPort: _selectedDestinationPort,
+                onSearch: _searchDestinationPorts,
+                onPortSelected: _selectDestinationPort,
+              ),
+            ),
+          ],
+        );
+      },
     );
   }
 
@@ -778,20 +866,29 @@ class _PortSelectorScreenState extends State<PortSelectorScreen> {
                         topRight: Radius.circular(8),
                       ),
                     ),
-                    child: const Row(
-                      children: [
+                    child: Row(
+                      children: const [
                         Expanded(
                           flex: 2,
                           child: Text(
                             'Nombre del Puerto',
                             style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
+                            overflow: TextOverflow.ellipsis,
+                            softWrap: false,
                           ),
                         ),
                         Expanded(
                           child: Text(
                             'Continente',
                             style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
+                            overflow: TextOverflow.ellipsis,
+                            softWrap: false,
                           ),
+                        ),
+                        SizedBox(width: 8),
+                        Text(
+                          'Acción',
+                          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
                         ),
                       ],
                     ),
@@ -804,7 +901,7 @@ class _PortSelectorScreenState extends State<PortSelectorScreen> {
                         final isSelected = selectedPort?.id == port.id;
                         
                         return InkWell(
-                          onTap: () => onPortSelected(port),
+                          onTap: port.disabled ? null : () => onPortSelected(port),
                           child: Container(
                             padding: const EdgeInsets.all(8),
                             decoration: BoxDecoration(
@@ -813,7 +910,9 @@ class _PortSelectorScreenState extends State<PortSelectorScreen> {
                                 bottom: BorderSide(color: Colors.grey.shade200),
                               ),
                             ),
-                            child: Row(
+                            child: Opacity(
+                              opacity: port.disabled ? 0.55 : 1.0,
+                              child: Row(
                               children: [
                                 const Icon(Icons.anchor, size: 16, color: Color(0xFF0A6CBC)),
                                 const SizedBox(width: 8),
@@ -822,15 +921,44 @@ class _PortSelectorScreenState extends State<PortSelectorScreen> {
                                   child: Text(
                                     port.name,
                                     style: const TextStyle(fontWeight: FontWeight.w500),
+                                    overflow: TextOverflow.ellipsis,
+                                    softWrap: false,
                                   ),
                                 ),
                                 Expanded(
                                   child: Text(
                                     port.continent,
                                     style: TextStyle(color: Colors.grey.shade600, fontSize: 12),
+                                    overflow: TextOverflow.ellipsis,
+                                    softWrap: false,
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                  if (port.disabled)
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                      decoration: BoxDecoration(
+                                        color: Colors.orange.withOpacity(0.15),
+                                        borderRadius: BorderRadius.circular(12),
+                                      ),
+                                      child: const Text(
+                                        'Deshabilitado',
+                                        style: TextStyle(color: Colors.orange, fontSize: 11, fontWeight: FontWeight.w600),
+                                      ),
+                                    ),
+                                  const SizedBox(width: 8),
+                                Tooltip(
+                                  message: port.disabled ? 'Habilitar puerto' : 'Deshabilitar puerto',
+                                  child: IconButton(
+                                    icon: Icon(
+                                      port.disabled ? Icons.lock_open : Icons.lock,
+                                      color: port.disabled ? Colors.orange : Colors.grey.shade700,
+                                    ),
+                                    onPressed: _isTogglingPort ? null : () => _togglePortDisabled(port),
                                   ),
                                 ),
                               ],
+                              ),
                             ),
                           ),
                         );
@@ -1133,18 +1261,23 @@ class _PortSelectorScreenState extends State<PortSelectorScreen> {
                   ),
                   if (points.length > 1)
                     PolylineLayer(polylines: [Polyline(points: points, strokeWidth: 4)]),
+                  // Marcadores sólo en waypoints (puertos), no en cada vértice del trazado
                   MarkerLayer(markers: [
-                    if (points.isNotEmpty)
+                    if (_routeData != null && _routeData!.coordinates.isNotEmpty)
+                      ..._buildWaypointMarkers(_routeData!),
+                    if (_routeData == null && points.isNotEmpty)
                       Marker(
                         point: points.first,
-                        width: 30, height: 30,
-                        child: const Icon(Icons.place, color: Colors.green),
+                        width: 34,
+                        height: 34,
+                        child: const Icon(Icons.place, color: Colors.green, size: 30),
                       ),
-                    if (points.length > 1)
+                    if (_routeData == null && points.length > 1)
                       Marker(
                         point: points.last,
-                        width: 30, height: 30,
-                        child: const Icon(Icons.flag, color: Colors.red),
+                        width: 34,
+                        height: 34,
+                        child: const Icon(Icons.flag, color: Colors.red, size: 30),
                       ),
                   ]),
                 ],
@@ -1333,19 +1466,21 @@ class RoutePreview extends StatelessWidget {
                   Polyline(points: curved, strokeWidth: 4),
                 ],
               ),
-            // Marcadores origen/destino
+            // Marcadores sólo para waypoints principales
             MarkerLayer(markers: [
               if (curved.isNotEmpty)
                 Marker(
                   point: curved.first,
-                  width: 32, height: 32,
-                  child: const Icon(Icons.place, size: 28),
+                  width: 36,
+                  height: 36,
+                  child: const Icon(Icons.place, size: 30, color: Colors.green),
                 ),
               if (curved.length > 1)
                 Marker(
                   point: curved.last,
-                  width: 32, height: 32,
-                  child: const Icon(Icons.flag, size: 28),
+                  width: 36,
+                  height: 36,
+                  child: const Icon(Icons.flag, size: 30, color: Colors.red),
                 ),
             ]),
           ],

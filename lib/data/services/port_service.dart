@@ -29,9 +29,43 @@ class PortService {
         final List<dynamic> data = jsonDecode(response.body);
         return data.map((json) => Port.fromJson(json)).toList();
       } else if (response.statusCode == 401) {
-        throw Exception('Unauthorized: invalid or missing token');
+        throw Exception('Unauthorized (401): token inválido o ausente');
+      } else if (response.statusCode == 403) {
+        throw Exception('Forbidden (403): rol insuficiente o token sin permisos');
       } else {
         throw Exception('Failed to load ports (status: ${response.statusCode})');
+      }
+    } catch (e) {
+      throw Exception('Network error: $e');
+    }
+  }
+
+  /// Disable a port
+  Future<void> disablePort(String portId) async {
+    try {
+      final headers = await _authService.getAuthHeaders();
+      final response = await http.patch(
+        Uri.parse('$_baseUrl/$portId/disable'),
+        headers: headers,
+      );
+      if (response.statusCode != 200) {
+        throw Exception('Failed to disable port (status: ${response.statusCode})');
+      }
+    } catch (e) {
+      throw Exception('Network error: $e');
+    }
+  }
+
+  /// Enable a port
+  Future<void> enablePort(String portId) async {
+    try {
+      final headers = await _authService.getAuthHeaders();
+      final response = await http.patch(
+        Uri.parse('$_baseUrl/$portId/enable'),
+        headers: headers,
+      );
+      if (response.statusCode != 200) {
+        throw Exception('Failed to enable port (status: ${response.statusCode})');
       }
     } catch (e) {
       throw Exception('Network error: $e');
@@ -51,6 +85,10 @@ class PortService {
       if (response.statusCode == 200) {
         final List<dynamic> data = jsonDecode(response.body);
         return data.map((json) => Port.fromJson(json)).toList();
+      } else if (response.statusCode == 401) {
+        throw Exception('Unauthorized (401): token inválido o ausente');
+      } else if (response.statusCode == 403) {
+        throw Exception('Forbidden (403): rol insuficiente o token sin permisos');
       } else {
         throw Exception('Failed to load nearby ports (status: ${response.statusCode})');
       }
@@ -74,6 +112,10 @@ class PortService {
         return Port.fromJson(data);
       } else if (response.statusCode == 404) {
         return null;
+      } else if (response.statusCode == 401) {
+        throw Exception('Unauthorized (401): token inválido o ausente');
+      } else if (response.statusCode == 403) {
+        throw Exception('Forbidden (403): rol insuficiente o token sin permisos');
       } else {
         throw Exception('Failed to load port (status: ${response.statusCode})');
       }
