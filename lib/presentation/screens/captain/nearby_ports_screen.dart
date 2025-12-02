@@ -1,8 +1,13 @@
 import 'package:flutter/material.dart';
+
 import '../../../core/constants/app_constants.dart';
 import '../../widgets/common/custom_drawer.dart';
 
-/// Nearby ports screen matching Angular's NearbyPortsComponent
+// AJUSTA estos imports a tus rutas reales:
+import '../../../data/services/nearby_port_service.dart';
+import '../../../data/models/port_overview_model.dart';
+import '../../../data/services/auth_service.dart';
+
 class NearbyPortsScreen extends StatefulWidget {
   const NearbyPortsScreen({super.key});
 
@@ -11,60 +16,77 @@ class NearbyPortsScreen extends StatefulWidget {
 }
 
 class _NearbyPortsScreenState extends State<NearbyPortsScreen> {
-  final List<Map<String, dynamic>> _nearbyPorts = [
-    {
-      'id': 1,
-      'name': 'Port of Hamburg',
-      'code': 'DEHAM',
-      'country': 'Germany',
-      'distance': '12.5 nm',
-      'bearing': 'NE',
-      'facilities': ['Container Terminal', 'Fuel Station', 'Repair Services'],
-      'coordinates': {'lat': 53.5511, 'lng': 9.9937},
-      'status': 'Open',
-    },
-    {
-      'id': 2,
-      'name': 'Port of Rotterdam',
-      'code': 'NLRTM',
-      'country': 'Netherlands',
-      'distance': '45.2 nm',
-      'bearing': 'W',
-      'facilities': ['Container Terminal', 'Bulk Terminal', 'Fuel Station'],
-      'coordinates': {'lat': 51.9244, 'lng': 4.4777},
-      'status': 'Open',
-    },
-    {
-      'id': 3,
-      'name': 'Port of Antwerp',
-      'code': 'BEANR',
-      'country': 'Belgium',
-      'distance': '67.8 nm',
-      'bearing': 'SW',
-      'facilities': ['Container Terminal', 'Chemical Terminal'],
-      'coordinates': {'lat': 51.2194, 'lng': 4.4025},
-      'status': 'Restricted',
-    },
-  ];
+  late final NearbyPortService _nearbyPortService;
 
   bool _isLoading = false;
-  String _sortBy = 'distance';
+  String _sortBy = 'name'; // 'name' | 'traffic'
+  String _searchQuery = '';
+  final TextEditingController _searchController = TextEditingController();
+
+  // datos traídos de la API
+  List<PortOverviewItem> _ports = [];
+  int _currentPage = 0; // 0-based
+  int _pageSize = 10;
+  int _totalElements = 0;
+  DateTime? _lastSyncedAt; // <-- ahora DateTime?
+
+  @override
+  void initState() {
+    super.initState();
+    // el servicio necesita AuthService => NearbyPortService(this._authService)
+    _nearbyPortService = NearbyPortService(AuthService());
+    _loadPorts(page: 0);
+  }
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  int get _totalPages {
+    if (_pageSize <= 0) return 1;
+    if (_totalElements == 0) return 1;
+    return ((_totalElements + _pageSize - 1) ~/ _pageSize);
+  }
+
+  Future<void> _loadPorts({required int page}) async {
+    setState(() => _isLoading = true);
+
+    try {
+      final resp = await _nearbyPortService.getPortOverview(
+        // si tu servicio admite state, puedes pasar uno luego
+        page: page,
+        size: _pageSize,
+      );
+
+      setState(() {
+        _ports = resp.content;
+        _totalElements = resp.totalElements;
+        _lastSyncedAt = resp.lastSyncedAt; // DateTime?
+        _currentPage = page;
+        _isLoading = false;
+      });
+    } catch (e) {
+      setState(() => _isLoading = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('No se pudo obtener la información de puertos: $e'),
+        ),
+      );
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Nearby Ports'),
+        title: const Text('Estado global de puertos'),
         actions: [
-          IconButton(
-            icon: const Icon(Icons.my_location),
-            onPressed: _getCurrentLocation,
-            tooltip: 'Get Current Location',
-          ),
           IconButton(
             icon: const Icon(Icons.sort),
             onPressed: _showSortOptions,
-            tooltip: 'Sort',
+            tooltip: 'Ordenar',
           ),
         ],
       ),
@@ -72,21 +94,41 @@ class _NearbyPortsScreenState extends State<NearbyPortsScreen> {
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
           : Column(
-              children: [
-                // Location Info Header
-                _buildLocationHeader(),
-                
-                // Ports List
-                Expanded(
-                  child: _buildPortsList(),
-                ),
-              ],
+        children: [
+          _buildLocationHeader(),
+
+          // BUSCADOR
+          Padding(
+            padding: const EdgeInsets.symmetric(
+              horizontal: AppConstants.defaultPadding,
+              vertical: 8,
             ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: _refreshPorts,
-        child: const Icon(Icons.refresh),
-        tooltip: 'Refresh Ports',
+            child: TextField(
+              controller: _searchController,
+              decoration: InputDecoration(
+                prefixIcon: const Icon(Icons.search),
+                hintText: 'Buscar puerto o país...',
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                isDense: true,
+              ),
+              onChanged: (value) {
+                setState(() {
+                  _searchQuery = value.trim().toLowerCase();
+                });
+              },
+            ),
+          ),
+
+          // LISTA
+          Expanded(child: _buildPortsList()),
+
+          // PAGINACIÓN
+          _buildPaginationControls(),
+        ],
       ),
+
     );
   }
 
@@ -97,7 +139,7 @@ class _NearbyPortsScreenState extends State<NearbyPortsScreen> {
       child: Row(
         children: [
           Icon(
-            Icons.location_on,
+            Icons.public,
             color: Theme.of(context).colorScheme.primary,
           ),
           const SizedBox(width: 8),
@@ -106,22 +148,21 @@ class _NearbyPortsScreenState extends State<NearbyPortsScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'Current Position',
+                  'Estado global de puertos',
                   style: Theme.of(context).textTheme.bodySmall,
                 ),
                 Text(
-                  '53.5511°N, 9.9937°E',
+                  'Total: $_totalElements puertos',
                   style: Theme.of(context).textTheme.titleMedium?.copyWith(
                     fontWeight: FontWeight.w500,
                   ),
                 ),
+                if (_lastSyncedAt != null)
+                  Text(
+                    'Última sincronización: ${_lastSyncedAt!.toLocal()}',
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
               ],
-            ),
-          ),
-          Text(
-            '${_nearbyPorts.length} ports nearby',
-            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-              color: Theme.of(context).colorScheme.primary,
             ),
           ),
         ],
@@ -130,29 +171,41 @@ class _NearbyPortsScreenState extends State<NearbyPortsScreen> {
   }
 
   Widget _buildPortsList() {
-    final sortedPorts = List<Map<String, dynamic>>.from(_nearbyPorts);
-    
-    if (_sortBy == 'distance') {
-      sortedPorts.sort((a, b) {
-        final aDistance = double.parse(a['distance'].toString().split(' ')[0]);
-        final bDistance = double.parse(b['distance'].toString().split(' ')[0]);
-        return aDistance.compareTo(bDistance);
-      });
-    } else if (_sortBy == 'name') {
-      sortedPorts.sort((a, b) => a['name'].compareTo(b['name']));
+    // filtro en memoria
+    final filtered = _ports.where((p) {
+      if (_searchQuery.isEmpty) return true;
+      final name = p.name.toLowerCase();
+      final country = (p.country ?? '').toLowerCase();
+      return name.contains(_searchQuery) || country.contains(_searchQuery);
+    }).toList();
+
+    // orden
+    if (_sortBy == 'traffic') {
+      filtered.sort((a, b) => (b.traffic ?? 0).compareTo(a.traffic ?? 0));
+    } else {
+      filtered.sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+    }
+
+    if (filtered.isEmpty) {
+      return const Center(
+        child: Padding(
+          padding: EdgeInsets.all(24.0),
+          child: Text('No se encontraron puertos para los filtros actuales.'),
+        ),
+      );
     }
 
     return ListView.builder(
       padding: const EdgeInsets.all(AppConstants.defaultPadding),
-      itemCount: sortedPorts.length,
+      itemCount: filtered.length,
       itemBuilder: (context, index) {
-        final port = sortedPorts[index];
+        final port = filtered[index];
         return _buildPortCard(port);
       },
     );
   }
 
-  Widget _buildPortCard(Map<String, dynamic> port) {
+  Widget _buildPortCard(PortOverviewItem port) {
     return Card(
       margin: const EdgeInsets.only(bottom: 16),
       child: Padding(
@@ -160,7 +213,7 @@ class _NearbyPortsScreenState extends State<NearbyPortsScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Header Row
+            // HEADER
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
@@ -169,7 +222,7 @@ class _NearbyPortsScreenState extends State<NearbyPortsScreen> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        port['name'],
+                        port.name,
                         style: Theme.of(context).textTheme.titleLarge?.copyWith(
                           fontWeight: FontWeight.bold,
                         ),
@@ -177,93 +230,82 @@ class _NearbyPortsScreenState extends State<NearbyPortsScreen> {
                       const SizedBox(height: 4),
                       Row(
                         children: [
-                          Text(
-                            port['code'],
-                            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                              color: Theme.of(context).colorScheme.primary,
-                              fontWeight: FontWeight.w500,
+                          Flexible(
+                            child: Text(
+                              port.portId,
+                              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                                color: Theme.of(context).colorScheme.primary,
+                                fontWeight: FontWeight.w500,
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              softWrap: false,
                             ),
                           ),
-                          const SizedBox(width: 8),
-                          Text(
-                            '• ${port['country']}',
-                            style: Theme.of(context).textTheme.bodyMedium,
+                          const SizedBox(width: 4),
+                          Flexible(
+                            child: Text(
+                              '· ${port.country ?? ''}',
+                              style: Theme.of(context).textTheme.bodyMedium,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              softWrap: false,
+                            ),
                           ),
                         ],
                       ),
                     ],
                   ),
                 ),
-                _buildStatusChip(port['status']),
+                _buildStatusChip(port.status),
               ],
             ),
             const SizedBox(height: 16),
-            
-            // Distance and Bearing
+
+            // TRÁFICO + COORDENADAS
             Row(
               children: [
                 Expanded(
                   child: _buildInfoItem(
-                    'Distance',
-                    port['distance'],
-                    Icons.straighten,
+                    'Tráfico',
+                    port.traffic != null
+                        ? '${port.traffic} buques/día (aprox.)'
+                        : 'Sin datos',
+                    Icons.directions_boat,
                   ),
                 ),
+                const SizedBox(width: 40),
                 Expanded(
                   child: _buildInfoItem(
-                    'Bearing',
-                    port['bearing'],
-                    Icons.navigation,
+                    'Coordenadas',
+                    '${port.lat.toStringAsFixed(2)}, ${port.lon.toStringAsFixed(2)}',
+                    Icons.location_on,
                   ),
                 ),
               ],
             ),
             const SizedBox(height: 16),
-            
-            // Facilities
-            Text(
-              'Facilities:',
-              style: Theme.of(context).textTheme.titleSmall,
-            ),
-            const SizedBox(height: 8),
-            Wrap(
-              spacing: 8,
-              runSpacing: 4,
-              children: (port['facilities'] as List<String>).map((facility) {
-                return Chip(
-                  label: Text(
-                    facility,
-                    style: const TextStyle(fontSize: 12),
-                  ),
-                  backgroundColor: Theme.of(context).colorScheme.surfaceVariant,
-                  padding: const EdgeInsets.symmetric(horizontal: 4),
-                );
-              }).toList(),
-            ),
-            const SizedBox(height: 16),
-            
-            // Action Buttons
-            Row(
-              mainAxisAlignment: MainAxisAlignment.end,
-              children: [
-                TextButton.icon(
-                  onPressed: () => _showPortDetails(port),
-                  icon: const Icon(Icons.info_outline),
-                  label: const Text('Details'),
-                ),
-                const SizedBox(width: 8),
-                TextButton.icon(
-                  onPressed: () => _navigateToPort(port),
-                  icon: const Icon(Icons.directions),
-                  label: const Text('Navigate'),
-                ),
-                const SizedBox(width: 8),
-                TextButton.icon(
-                  onPressed: () => _contactPort(port),
-                  icon: const Icon(Icons.phone),
-                  label: const Text('Contact'),
-                ),
-              ],
+
+            if (port.reason != null && port.reason!.isNotEmpty) ...[
+              Text(
+                'Motivo:',
+                style: Theme.of(context).textTheme.titleSmall,
+              ),
+              const SizedBox(height: 4),
+              Text(
+                port.reason!,
+                style: Theme.of(context).textTheme.bodyMedium,
+              ),
+              const SizedBox(height: 16),
+            ],
+
+            Align(
+              alignment: Alignment.centerRight,
+              child: TextButton.icon(
+                onPressed: () => _showPortDetails(port),
+                icon: const Icon(Icons.info_outline),
+                label: const Text('Detalles'),
+              ),
             ),
           ],
         ),
@@ -271,35 +313,49 @@ class _NearbyPortsScreenState extends State<NearbyPortsScreen> {
     );
   }
 
-  Widget _buildStatusChip(String status) {
-    Color color;
-    switch (status) {
-      case 'Open':
-        color = const Color(0xFF4CAF50);
+  // status como String (OPEN / RESTRICTED / CLOSED)
+  Widget _buildStatusChip(PortOperationalStatus status) {
+    final code = status.name; // Usamos el valor "OPEN/RESTRICTED/CLOSED"
+
+    late Color color;
+    late String label;
+
+    switch (code) {
+      case 'OPEN':
+        color = const Color(0xFF4CAF50); // Verde
+        label = 'Open';
         break;
-      case 'Restricted':
-        color = const Color(0xFFFFA726);
+
+      case 'RESTRICTED':
+        color = const Color(0xFFFFA726); // Naranja
+        label = 'Restricted';
         break;
-      case 'Closed':
-        color = const Color.fromARGB(255, 195, 20, 20);
+
+      case 'CLOSED':
+        color = const Color(0xFFD32F2F); // Rojo
+        label = 'Closed';
         break;
+
       default:
-        color = const Color(0xFFFFA726);
+        color = Colors.grey;
+        label = code;
     }
 
     return Chip(
       label: Text(
-        status,
+        label,
         style: const TextStyle(
           color: Colors.white,
           fontSize: 12,
-          fontWeight: FontWeight.w500,
+          fontWeight: FontWeight.w600,
         ),
       ),
       backgroundColor: color,
-      padding: const EdgeInsets.symmetric(horizontal: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
     );
   }
+
+
 
   Widget _buildInfoItem(String label, String value, IconData icon) {
     return Row(
@@ -329,23 +385,38 @@ class _NearbyPortsScreenState extends State<NearbyPortsScreen> {
     );
   }
 
-  void _getCurrentLocation() {
-    setState(() {
-      _isLoading = true;
-    });
-    
-    // Simulate getting location
-    Future.delayed(const Duration(seconds: 2), () {
-      setState(() {
-        _isLoading = false;
-      });
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Location updated successfully'),
-          duration: Duration(seconds: 2),
-        ),
-      );
-    });
+  Widget _buildPaginationControls() {
+    if (_totalElements <= _pageSize) return const SizedBox.shrink();
+
+    final totalPages = _totalPages;
+
+    return Container(
+      padding: const EdgeInsets.symmetric(
+        horizontal: AppConstants.defaultPadding,
+        vertical: 8,
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text('Página ${_currentPage + 1} de $totalPages'),
+          Row(
+            children: [
+              IconButton(
+                icon: const Icon(Icons.chevron_left),
+                onPressed:
+                _currentPage > 0 ? () => _loadPorts(page: _currentPage - 1) : null,
+              ),
+              IconButton(
+                icon: const Icon(Icons.chevron_right),
+                onPressed: (_currentPage + 1) < totalPages
+                    ? () => _loadPorts(page: _currentPage + 1)
+                    : null,
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
   }
 
   void _showSortOptions() {
@@ -361,29 +432,25 @@ class _NearbyPortsScreenState extends State<NearbyPortsScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              'Sort By',
+              'Ordenar por',
               style: Theme.of(context).textTheme.headlineSmall,
             ),
             const SizedBox(height: 16),
             ListTile(
-              leading: const Icon(Icons.straighten),
-              title: const Text('Distance'),
-              trailing: _sortBy == 'distance' ? const Icon(Icons.check) : null,
+              leading: const Icon(Icons.sort_by_alpha),
+              title: const Text('Nombre'),
+              trailing: _sortBy == 'name' ? const Icon(Icons.check) : null,
               onTap: () {
-                setState(() {
-                  _sortBy = 'distance';
-                });
+                setState(() => _sortBy = 'name');
                 Navigator.pop(context);
               },
             ),
             ListTile(
-              leading: const Icon(Icons.sort_by_alpha),
-              title: const Text('Name'),
-              trailing: _sortBy == 'name' ? const Icon(Icons.check) : null,
+              leading: const Icon(Icons.directions_boat),
+              title: const Text('Tráfico'),
+              trailing: _sortBy == 'traffic' ? const Icon(Icons.check) : null,
               onTap: () {
-                setState(() {
-                  _sortBy = 'name';
-                });
+                setState(() => _sortBy = 'traffic');
                 Navigator.pop(context);
               },
             ),
@@ -393,61 +460,53 @@ class _NearbyPortsScreenState extends State<NearbyPortsScreen> {
     );
   }
 
-  void _refreshPorts() {
-    setState(() {
-      _isLoading = true;
-    });
-    
-    Future.delayed(const Duration(seconds: 1), () {
-      setState(() {
-        _isLoading = false;
-      });
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Ports refreshed'),
-          duration: Duration(seconds: 1),
-        ),
-      );
-    });
+  String _statusLabel(PortOperationalStatus status) {
+    final code = status.name; // o status.toString().split('.').last;
+
+    switch (code) {
+      case 'OPEN':
+        return 'Abierto';
+      case 'RESTRICTED':
+        return 'Restringido';
+      case 'CLOSED':
+        return 'Cerrado';
+      default:
+        return code;
+    }
   }
 
-  void _showPortDetails(Map<String, dynamic> port) {
+
+  void _showPortDetails(PortOverviewItem port) {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: Text(port['name']),
+        title: Text(port.name),
         content: SingleChildScrollView(
           child: Column(
-            mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              _buildDetailRow('Code', port['code']),
-              _buildDetailRow('Country', port['country']),
-              _buildDetailRow('Distance', port['distance']),
-              _buildDetailRow('Bearing', port['bearing']),
-              _buildDetailRow('Status', port['status']),
-              _buildDetailRow(
-                'Coordinates',
-                '${port['coordinates']['lat']}, ${port['coordinates']['lng']}',
-              ),
-              const SizedBox(height: 8),
-              Text(
-                'Facilities:',
-                style: Theme.of(context).textTheme.titleSmall,
-              ),
-              ...((port['facilities'] as List<String>).map((facility) => 
-                Padding(
-                  padding: const EdgeInsets.only(left: 16, top: 2),
-                  child: Text('• $facility'),
-                ),
-              )),
+              _buildDetailRow('ID', port.portId),
+              _buildDetailRow('País', port.country ?? '-'),
+              _buildDetailRow('Coordenadas', '${port.lat}, ${port.lon}'),
+              if (port.traffic != null)
+                _buildDetailRow(
+                    'Tráfico', '${port.traffic} buques/día (aprox.)'),
+              _buildDetailRow('Estado', _statusLabel(port.status)),
+              if (port.reason != null && port.reason!.isNotEmpty)
+                _buildDetailRow('Motivo', port.reason!),
+              if (port.contactPhone != null && port.contactPhone!.isNotEmpty)
+                _buildDetailRow('Teléfono', port.contactPhone!),
+              if (port.contactEmail != null && port.contactEmail!.isNotEmpty)
+                _buildDetailRow('Email', port.contactEmail!),
+              if (port.website != null && port.website!.isNotEmpty)
+                _buildDetailRow('Web', port.website!),
             ],
           ),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text('Close'),
+            child: const Text('Cerrar'),
           ),
         ],
       ),
@@ -461,43 +520,13 @@ class _NearbyPortsScreenState extends State<NearbyPortsScreen> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           SizedBox(
-            width: 80,
+            width: 90,
             child: Text(
               '$label:',
               style: const TextStyle(fontWeight: FontWeight.w500),
             ),
           ),
           Expanded(child: Text(value)),
-        ],
-      ),
-    );
-  }
-
-  void _navigateToPort(Map<String, dynamic> port) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('Navigation to ${port['name']} started'),
-        action: SnackBarAction(
-          label: 'View Map',
-          onPressed: () {
-            // Navigate to map view
-          },
-        ),
-      ),
-    );
-  }
-
-  void _contactPort(Map<String, dynamic> port) {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text('Contact ${port['name']}'),
-        content: const Text('Contact information will be displayed here.'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Close'),
-          ),
         ],
       ),
     );

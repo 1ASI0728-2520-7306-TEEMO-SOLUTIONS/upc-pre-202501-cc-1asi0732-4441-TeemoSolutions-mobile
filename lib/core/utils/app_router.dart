@@ -1,6 +1,7 @@
 import 'package:go_router/go_router.dart';
 import 'package:flutter/material.dart';
 
+import '../../presentation/screens/notifications/notifications_screen.dart';
 import '../../presentation/screens/settings/settings_screen.dart';
 import '../constants/app_constants.dart';
 import '../../presentation/screens/splash_screen.dart';
@@ -66,11 +67,21 @@ class AppRouter {
       ),
 
       GoRoute(
+        path: AppRoutes.notifications,
+        name: 'notifications',
+        builder: (context, state) => const NotificationsScreen(),
+        redirect: _authGuard,
+      ),
+
+      GoRoute(
         path: AppRoutes.settings,
         name: 'settings',
         builder: (context, state) => const SettingsScreen(),
         redirect: _authGuard,
       ),
+
+
+
     ],
     
     // Error handling

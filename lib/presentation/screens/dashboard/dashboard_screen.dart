@@ -4,6 +4,7 @@ import '../../../data/models/route_history_model.dart';
 import '../../../data/services/auth_service.dart';
 import '../../../data/services/route_history_service.dart';
 import '../../providers/auth_provider.dart';
+import '../../providers/popular_routes_provider.dart';
 import '../../providers/route_history_provider.dart';
 import '../../providers/route_provider.dart';
 import '../../widgets/common/custom_drawer.dart';
@@ -164,9 +165,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
             const MapPreviewWidget(),
             const SizedBox(height: 24),
 
-            // Estadísticas rápidas
-            _buildQuickStats(),
-            const SizedBox(height: 24),
+            // Por esto:
+            _buildPopularRoutes(),
 
             // Rutas recientes
             _buildRecentRoutes(),
@@ -285,9 +285,41 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
-  Widget _buildQuickStats() {
-    return Consumer<RouteProvider>(
-      builder: (context, routeProvider, child) {
+
+
+  Widget _buildPopularRoutes() {
+    return Consumer<PopularRoutesProvider>(
+      builder: (context, provider, child) {
+        if (provider.isLoading) {
+          return const Card(
+            child: Padding(
+              padding: EdgeInsets.all(16),
+              child: Center(child: CircularProgressIndicator()),
+            ),
+          );
+        }
+
+        if (provider.error != null) {
+          return Card(
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Text(
+                'Error al cargar rutas populares: ${provider.error}',
+                style: const TextStyle(color: Colors.red),
+              ),
+            ),
+          );
+        }
+
+        if (provider.routes.isEmpty) {
+          return const Card(
+            child: Padding(
+              padding: EdgeInsets.all(16),
+              child: Text('No hay rutas populares todavía'),
+            ),
+          );
+        }
+
         return Card(
           child: Padding(
             padding: const EdgeInsets.all(16.0),
@@ -295,65 +327,29 @@ class _DashboardScreenState extends State<DashboardScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 const Text(
-                  'Estadísticas Rápidas',
+                  'Rutas Populares',
                   style: TextStyle(
                     fontSize: 18,
                     fontWeight: FontWeight.bold,
                   ),
                 ),
                 const SizedBox(height: 16),
-                Row(
-                  children: [
-                    Expanded(
-                      child: _buildStatCard(
-                        'Rutas Activas',
-                        routeProvider.routes
-                            .where((route) => route.status == 'active')
-                            .length
-                            .toString(),
-                        Icons.directions_boat,
-                        Colors.blue,
+                ...provider.routes.map((r) {
+                  return ListTile(
+                    leading: CircleAvatar(
+                      backgroundColor: Colors.blue,
+                      child: Text(
+                        r.searchesCount.toString(),
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.bold,
+                        ),
                       ),
                     ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: _buildStatCard(
-                        'Rutas Completadas',
-                        routeProvider.routes
-                            .where((route) => route.status == 'completed')
-                            .length
-                            .toString(),
-                        Icons.check_circle,
-                        Colors.green,
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 12),
-                Row(
-                  children: [
-                    Expanded(
-                      child: _buildStatCard(
-                        'Rutas Planificadas',
-                        routeProvider.routes
-                            .where((route) => route.status == 'planned')
-                            .length
-                            .toString(),
-                        Icons.schedule,
-                        Colors.orange,
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: _buildStatCard(
-                        'Total de Rutas',
-                        routeProvider.routes.length.toString(),
-                        Icons.route,
-                        Colors.purple,
-                      ),
-                    ),
-                  ],
-                ),
+                    title: Text('${r.originPortName} → ${r.destinationPortName}'),
+                    subtitle: Text('Buscado ${r.searchesCount} veces'),
+                  );
+                }).toList(),
               ],
             ),
           ),
@@ -362,39 +358,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
-  Widget _buildStatCard(String title, String value, IconData icon, Color color) {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: color.withOpacity(0.1),
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: color.withOpacity(0.3)),
-      ),
-      child: Column(
-        children: [
-          Icon(icon, color: color, size: 32),
-          const SizedBox(height: 8),
-          Text(
-            value,
-            style: TextStyle(
-              fontSize: 24,
-              fontWeight: FontWeight.bold,
-              color: color,
-            ),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            title,
-            style: TextStyle(
-              fontSize: 12,
-              color: color.withOpacity(0.8),
-            ),
-            textAlign: TextAlign.center,
-          ),
-        ],
-      ),
-    );
-  }
 
   Widget _buildRecentRoutes() {
     return Consumer<RouteHistoryProvider>(

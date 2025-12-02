@@ -1,12 +1,16 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
+import 'package:mushroom/presentation/providers/notification_provider.dart';
+import 'package:mushroom/presentation/providers/popular_routes_provider.dart';
 import 'package:mushroom/presentation/providers/route_history_provider.dart';
 import 'package:provider/provider.dart';
 
 import 'core/constants/app_constants.dart';
 import 'core/theme/app_theme.dart';
 import 'core/utils/app_router.dart';
+import 'data/services/notification_service.dart';
+import 'data/services/popular_route_service.dart';
 import 'data/services/route_history_service.dart';
 import 'presentation/providers/auth_provider.dart';
 import 'presentation/providers/theme_provider.dart';
@@ -67,6 +71,19 @@ class MushroomApp extends StatelessWidget {
             PortService(),
           ),
         ),
+
+        ChangeNotifierProvider(
+          create: (_) => PopularRoutesProvider(
+            PopularRouteService(AuthService()),
+          )..loadPopularRoutes(),
+        ),
+
+        ChangeNotifierProvider(
+          create: (_) => NotificationProvider(
+            NotificationService(AuthService()),
+          ),
+        ),
+
 
       ],
       child: Consumer<ThemeProvider>(

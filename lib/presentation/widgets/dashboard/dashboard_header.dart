@@ -1,5 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
+import 'package:provider/provider.dart';
 import '../../../core/constants/app_constants.dart';
+import '../../providers/notification_provider.dart';
+import '../../../data/models/notification_model.dart';
+import '../../screens/notifications/notifications_screen.dart';
+
 
 /// Dashboard header widget matching Angular's HeaderComponent
 class DashboardHeader extends StatelessWidget {
@@ -55,68 +61,125 @@ class DashboardHeader extends StatelessWidget {
   }
 
   void _showNotificationsBottomSheet(BuildContext context) {
+    final notifProvider = context.read<NotificationProvider>();
+    notifProvider.loadNotifications();
+
     showModalBottomSheet(
       context: context,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
-      builder: (context) => Container(
-        padding: const EdgeInsets.all(AppConstants.defaultPadding),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text(
-                  'Notifications',
-                  style: Theme.of(context).textTheme.headlineSmall,
-                ),
-                IconButton(
-                  icon: const Icon(Icons.close),
-                  onPressed: () => Navigator.pop(context),
-                ),
-              ],
-            ),
-            const SizedBox(height: 16),
-            _buildNotificationItem(
-              context,
-              'Route Update',
-              'Route "Atlantic Express" has been updated',
-              Icons.route,
-              const Color(0xFF1976D2),
-            ),
-            _buildNotificationItem(
-              context,
-              'New Port Added',
-              'Port of Hamburg has been added to the system',
-              Icons.anchor,
-              const Color(0xFF4CAF50),
-            ),
-            _buildNotificationItem(
-              context,
-              'Weather Alert',
-              'Storm warning for North Atlantic routes',
-              Icons.warning,
-              const Color(0xFFFFA726),
-            ),
-            const SizedBox(height: 16),
-            SizedBox(
-              width: double.infinity,
-              child: TextButton(
-                onPressed: () {
-                  Navigator.pop(context);
-                  // Navigate to notifications screen
-                },
-                child: const Text('View All Notifications'),
+      builder: (context) {
+        return Consumer<NotificationProvider>(
+          builder: (context, provider, child) {
+            if (provider.loading) {
+              return const Padding(
+                padding: EdgeInsets.all(40),
+                child: Center(child: CircularProgressIndicator()),
+              );
+            }
+
+            final items = provider.notifications;
+            // 👇 Solo mostramos máximo 3 notificaciones
+            final visibleItems = items.take(3).toList();
+
+            return Container(
+              padding: const EdgeInsets.all(AppConstants.defaultPadding),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  // Header
+                  Row(
+                    children: [
+                      const Expanded(
+                        child: Text(
+                          'Notificaciones',
+                          style: TextStyle(
+                            fontSize: 20,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.done_all),
+                        tooltip: 'Marcar todas como leídas',
+                        onPressed: () => provider.markAllAsRead(),
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.close),
+                        onPressed: () => Navigator.pop(context),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+
+                  if (visibleItems.isEmpty)
+                    const Padding(
+                      padding: EdgeInsets.all(24),
+                      child: Text('No hay notificaciones.'),
+                    )
+                  else
+                    ...visibleItems.map((n) {
+                      return ListTile(
+                        leading: CircleAvatar(
+                          backgroundColor:
+                          (n.read ? Colors.grey : Colors.blue).withOpacity(0.1),
+                          child: Icon(
+                            Icons.notifications,
+                            color: n.read ? Colors.grey : Colors.blue,
+                          ),
+                        ),
+                        title: Text(
+                          n.title,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        subtitle: Text(
+                          n.message,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        trailing: Text(
+                          _formatRelativeTime(n.createdAt),
+                          style: const TextStyle(fontSize: 12, color: Colors.grey),
+                        ),
+                        onTap: () {
+                          provider.markAsRead(n.id);
+                          // aquí podrías navegar a detalle si quisieras
+                        },
+                      );
+                    }).toList(),
+
+                  const SizedBox(height: 8),
+
+                  // Ver todas
+                  SizedBox(
+                    width: double.infinity,
+                    child: TextButton(
+                      onPressed: () {
+                        context.push('/notifications');
+                      },
+                      child: const Text('Ver todas las notificaciones'),
+                    ),
+                  ),
+                ],
               ),
-            ),
-          ],
-        ),
-      ),
+            );
+          },
+        );
+      },
     );
   }
+
+  String _formatRelativeTime(DateTime date) {
+    final diff = DateTime.now().difference(date);
+    if (diff.inMinutes < 1) return 'ahora';
+    if (diff.inMinutes < 60) return '${diff.inMinutes} min';
+    if (diff.inHours < 24) return '${diff.inHours} h';
+    return '${diff.inDays} d';
+  }
+
+
 
   Widget _buildNotificationItem(
     BuildContext context,

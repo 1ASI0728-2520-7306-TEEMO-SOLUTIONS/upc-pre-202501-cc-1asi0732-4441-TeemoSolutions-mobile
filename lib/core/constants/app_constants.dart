@@ -8,7 +8,7 @@ class AppConstants {
   // API Configuration - corresponds to Angular's environment.ts
   // Actualizado a la IP LAN local reportada. Si tu backend corre en otro puerto,
   // ajusta :8080 por el puerto correcto (por ejemplo :2020)
-  static const String baseUrl = 'http://192.168.18.13:8080/api';
+  static const String baseUrl = 'http://192.168.18.10:2020/api';
   static const String authEndpoint = '/authentication';
   static const String routesEndpoint = '/routes';
   static const String portsEndpoint = '/ports';
@@ -47,6 +47,7 @@ class AppRoutes {
   static const String routeHistory = '/route-history';
   static const String nearbyPorts = '/nearby-ports';
   static const String settings = '/settings';
+  static const String notifications = '/notifications';
 }
 
 /// User roles matching Angular's role system

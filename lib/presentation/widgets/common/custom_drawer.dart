@@ -45,8 +45,15 @@ class CustomDrawer extends StatelessWidget {
                 _buildNavigationItem(
                   context,
                   icon: Icons.anchor_outlined,
-                  title: 'Puertos Cercanos',
+                  title: 'Estado de Puertos',
                   route: AppRoutes.nearbyPorts,
+                ),
+
+                _buildNavigationItem(
+                  context,
+                  icon: Icons.notifications_outlined,
+                  title: 'Notificaciones',
+                  route: AppRoutes.notifications,
                 ),
                 
                 const Divider(),
@@ -58,15 +65,7 @@ class CustomDrawer extends StatelessWidget {
                   title: 'Configuración',
                   route: AppRoutes.settings,
                 ),
-                // _buildNavigationItem(
-                //   context,
-                //   icon: Icons.help_outline,
-                //   title: 'Ayuda',
-                //   onTap: () {
-                //     Navigator.pop(context);
-                //     // TODO: Navigate to help
-                //   },
-                // ),
+
               ],
             ),
           ),
