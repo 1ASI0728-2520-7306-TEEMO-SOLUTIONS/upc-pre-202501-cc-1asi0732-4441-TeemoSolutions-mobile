@@ -76,12 +76,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
         backgroundColor: const Color(0xFF0A6CBC),
         foregroundColor: Colors.white,
         actions: [
-          IconButton(
-            icon: const Icon(Icons.notifications),
-            onPressed: () {
-              // TODO: Implementar notificaciones
-            },
-          ),
+
           IconButton(
             icon: const Icon(Icons.help_outline),
             onPressed: () {
@@ -128,31 +123,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                     ),
                   ),
                 ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: ElevatedButton.icon(
-                    onPressed: () {
-                      Navigator.of(context).push(
-                        MaterialPageRoute(
-                          builder: (context) => const QuickRouteScreen(),
-                        ),
-                      );
-                    },
-                    icon: const Icon(Icons.add_road),
-                    label: const Text(
-                      'Ruta Rápida',
-                      style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-                    ),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.grey.shade600,
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(vertical: 16),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                    ),
-                  ),
-                ),
+
               ],
             ),
             const SizedBox(height: 24),
@@ -396,10 +367,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   const Text('No hay rutas recientes')
                 else
                   ...visibleRoutes.map((item) {        // 👈 aquí usamos SOLO 3
-                    final origin =
-                    historyProvider.resolvePortName(item.originPortId);
-                    final dest =
-                    historyProvider.resolvePortName(item.destinationPortId);
+                    final origin = item.originPortName ?? historyProvider.resolvePortName(item.originPortId);
+
+                    final dest   = item.destinationPortName ?? historyProvider.resolvePortName(item.destinationPortId);
+
 
                     final distanceStr = item.totalDistance != null
                         ? '${item.totalDistance!.toStringAsFixed(1)} nm'

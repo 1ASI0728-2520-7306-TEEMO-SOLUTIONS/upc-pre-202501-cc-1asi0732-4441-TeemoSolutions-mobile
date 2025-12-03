@@ -34,32 +34,28 @@ class RouteHistoryProvider extends ChangeNotifier {
   }
 
   Future<void> loadRecentForUser(String userId) async {
-    debugPrint('👉 [RouteHistoryProvider] loadRecentForUser userId=$userId');
-
     _isLoading = true;
-    _error = null;
     notifyListeners();
 
     try {
-      // 1. cargar historial
-      _recent = await _service.getRecentForUser(userId);
-      debugPrint('✅ [RouteHistoryProvider] _recent.length=${_recent.length}');
-
-      // 2. si aún no tengo el catálogo de puertos, lo cargo
+      // 1️⃣ Cargar PUERTOS primero (necesarios para resolver nombres)
       if (_portNameMap.isEmpty) {
-        debugPrint('👉 [RouteHistoryProvider] cargando puertos...');
         final ports = await _portService.getAllPorts();
         for (final Port p in ports) {
           _portNameMap[p.id] = p.name;
         }
-        debugPrint('✅ [RouteHistoryProvider] portNameMap size=${_portNameMap.length}');
+        debugPrint('✅ Puertos cargados: ${_portNameMap.length}');
       }
+
+      // 2️⃣ Ahora cargar historial
+      _recent = await _service.getRecentForUser(userId);
+      debugPrint('✅ Rutas cargadas: ${_recent.length}');
     } catch (e) {
-      _error = e.toString().replaceFirst('Exception: ', '');
-      debugPrint('❌ [RouteHistoryProvider] error=$_error');
+      _error = e.toString();
     } finally {
       _isLoading = false;
       notifyListeners();
     }
   }
+
 }

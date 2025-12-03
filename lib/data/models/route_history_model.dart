@@ -1,6 +1,8 @@
 // lib/data/models/route_history_item.dart
 class RouteHistoryItem {
   final String id;
+  final String? originPortName;
+  final String? destinationPortName;
   final String originPortId;
   final String destinationPortId;
   final double? totalDistance;
@@ -8,8 +10,10 @@ class RouteHistoryItem {
   final DateTime computedAt;
   final String source;
 
-  RouteHistoryItem({
+  RouteHistoryItem( {
     required this.id,
+    required this.originPortName,
+    required this.destinationPortName,
     required this.originPortId,
     required this.destinationPortId,
     required this.status,
@@ -21,6 +25,8 @@ class RouteHistoryItem {
   factory RouteHistoryItem.fromJson(Map<String, dynamic> json) {
     return RouteHistoryItem(
       id: json['id'] as String,
+      originPortName: json['originPortName'] as String?,
+      destinationPortName: json['destinationPortName'] as String?,
       originPortId: json['originPortId'] as String,
       destinationPortId: json['destinationPortId'] as String,
       status: json['status'] as String,
